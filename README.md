@@ -4,9 +4,11 @@
   <sub>a task tracker in plain markdown</sub>
 </h1>
 
-A task tracker normally lives in someone else's database. The issues are rows in a service you do not control, readable only through its interface, gone when the subscription lapses.
+Software is increasingly built by humans and machines together. Both need the same view of a project — what the work is, what state it is in — and the two do not read alike. A human reads rendered structure at a glance. A machine reads structured text it can parse and edit. A tracker that serves one makes the other translate.
 
-slate inverts this. The tracker is plain markdown on disk — one file for the project, one file per issue. You read and edit it in any editor, diff it in git, browse it on GitHub. slate is only a viewer: a single Python file that renders the markdown as a read-only web board with a live, dark, Linear-style interface. Delete the viewer and nothing is lost. The files are the system of record.
+slate serves both from a single source. A project and its issues are plain markdown on disk — the form a machine reads and writes natively. One read-only viewer renders that same markdown as a live board — the form a human reads at a glance. The work is kept as one set of files and presented in two forms at once, each optimized for the reader it serves. The agent edits the files; you watch the board; neither translates for the other.
+
+The markdown is the system of record. slate is only the viewer — a single Python file using nothing but the standard library. Delete it and nothing is lost.
 
 <p align="center">
   <img src="docs/screenshot.png" alt="slate rendering a task board: a status-grouped sidebar, count chips, and the project overview in a dark, Linear-style interface" width="820">
