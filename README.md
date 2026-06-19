@@ -12,9 +12,19 @@ slate inverts this. The tracker is plain markdown on disk — one file for the p
 
 ## Install
 
-Copy `slate.py`, `project.md`, `templates/`, and `issues/` into your repository — under a `tasks/` or `plan/` directory, or at the root. There is nothing else to install.
+Copy `slate.py`, `AGENTS.md`, `templates/`, and a starter `project.md` into your repository — under a `tasks/` or `plan/` directory, or at the root. Replace the demo `issues/` with your own. There is nothing else to install.
 
 No dependencies. The viewer uses only the Python 3 standard library — no pip, no npm, no build step. The one requirement is a Python 3 interpreter, which your system already has.
+
+### Tell your agent
+
+slate ships `AGENTS.md` — operating instructions an AI coding agent follows to create and update issues. To make a Claude Code agent aware of the tracker, import it from your repository's `CLAUDE.md`:
+
+```
+@tasks/slate/AGENTS.md
+```
+
+Adjust the path to wherever you placed slate. Other agent tools can reference `AGENTS.md` directly. Without this step an agent has to infer the conventions; with it, every session knows them. Because slate's data is the same markdown the agent already reads and writes, the instructions teach conventions, not an API.
 
 ---
 
