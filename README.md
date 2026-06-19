@@ -1,14 +1,14 @@
 <h1 align="center">
   s l a t e
   <br>
-  <sub>AI task tracking for humans</sub>
+  <sub>task tracking for AI and their humans</sub>
 </h1>
 
-Humans and AIs build software together, and both need to track the work. The problem is they perceive things differently. A human comprehends spatially: meaning is carried by arrangement, and a board shows where the work stands at a glance. An AI takes no benefit from layout — it reads structure directly in the text and writes it back in the same form.
+Humans and AIs build software together. Both must track the work. This is where they part: a human reads a project through arrangement — position, grouping, the whole grasped at once — while an AI reads none of it. The agent parses text and emits text. Visual layout is wasted on it.
 
-A normal tracker resolves this for the human: the work lives in a database behind a visual interface, and the machine reaches it through an API, second-class. slate inverts the order. The work is plain markdown — one file per issue, what an agent reads and writes natively — and the board is rendered from it, for you. Neither reader is an afterthought.
+Most trackers are built for the eye. The work lives in a database behind a visual interface; the machine reaches it through an API, second-class. slate inverts the priority. The record is plain markdown, one file per issue — exactly what an agent reads and writes unassisted. From it, slate renders a board for you. The view serves the human; the source serves the agent. Neither reader is an afterthought.
 
-The markdown is the system of record. The viewer is a single Python file, standard library only. Delete it and nothing is lost.
+The markdown is the system of record. The viewer is one Python file, standard library only, and disposable. Delete it; nothing is lost.
 
 <p align="center">
   <img src="docs/screenshot.png" alt="slate rendering a task board: a status-grouped sidebar, count chips, and the project overview in a dark, Linear-style interface" width="820">
