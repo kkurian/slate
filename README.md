@@ -4,7 +4,7 @@
   <sub>task tracking for AI and their humans</sub>
 </h1>
 
-Humans and AIs build software together. Both must track the work. This is where they part: a human reads a project through arrangement — position, grouping, the whole grasped at once — while an AI reads none of it. The agent parses text and emits text. Visual layout is wasted on it.
+Humans and AIs build software together. Both must track the work. This is where they part: a human reads a project through arrangement — position, grouping, the whole grasped at once. An AI perceives no arrangement. It works in text — parsing, emitting — and gains nothing from how that text is laid out.
 
 Most trackers are built for the eye. The work lives in a database behind a visual interface; the machine reaches it through an API, second-class. slate inverts the priority. The record is plain markdown, one file per issue — exactly what an agent reads and writes unassisted. From it, slate renders a board for you. The view serves the human; the source serves the agent. Neither reader is an afterthought.
 
