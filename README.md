@@ -1,14 +1,14 @@
 <h1 align="center">
   s l a t e
   <br>
-  <sub>a task tracker in plain markdown</sub>
+  <sub>the task tracker humans and AI agents share</sub>
 </h1>
 
-Software is increasingly built by humans and machines together. Both need the same view of a project — what the work is, what state it is in — and the two do not read alike. A human reads rendered structure at a glance. A machine reads structured text it can parse and edit. A tracker that serves one makes the other translate.
+You and your AI agent work the same project. You should be tracking the same tasks.
 
-slate serves both from a single source. A project and its issues are plain markdown on disk — the form a machine reads and writes natively. One read-only viewer renders that same markdown as a live board — the form a human reads at a glance. The work is kept as one set of files and presented in two forms at once, each optimized for the reader it serves. The agent edits the files; you watch the board; neither translates for the other.
+slate keeps that work as plain markdown — one file per issue — and renders it as a live, read-only board. The agent reads and edits the files. You read the board. One source, two forms, each suited to its reader; neither has to translate.
 
-The markdown is the system of record. slate is only the viewer — a single Python file using nothing but the standard library. Delete it and nothing is lost.
+The markdown is the system of record. The viewer is a single Python file, standard library only. Delete it and nothing is lost.
 
 <p align="center">
   <img src="docs/screenshot.png" alt="slate rendering a task board: a status-grouped sidebar, count chips, and the project overview in a dark, Linear-style interface" width="820">
@@ -18,31 +18,29 @@ The markdown is the system of record. slate is only the viewer — a single Pyth
 
 ## Install
 
-Copy `slate.py`, `AGENTS.md`, `templates/`, and a starter `project.md` into your repository — under a `tasks/` or `plan/` directory, or at the root. Replace the demo `issues/` with your own. There is nothing else to install.
-
-No dependencies. The viewer uses only the Python 3 standard library — no pip, no npm, no build step. The one requirement is a Python 3 interpreter, which your system already has.
-
-### Tell your agent
-
-slate ships `AGENTS.md` — operating instructions an AI coding agent follows to create and update issues. Run the installer once, from wherever you placed slate:
+From your repository root:
 
 ```sh
-python3 slate.py install
+bash <(curl -fsSL https://raw.githubusercontent.com/bioneural/slate/main/install.sh)
 ```
 
-This writes a managed block into your repository's **root** `CLAUDE.md` (creating it if absent) that imports `AGENTS.md` and instructs the agent to track work in slate. It is idempotent — re-running updates the block in place. The block looks like:
+This copies slate into `tasks/` (pass a different directory as the argument), writes a starter `project.md`, and makes your agent aware of the tracker. Re-run any time to update; your `project.md`, your issues, and your `CLAUDE.md` content are left untouched.
+
+The only requirements are a Python 3 interpreter and `curl` — both already on your system. The viewer itself uses nothing but the Python 3 standard library: no pip, no npm, no build step.
+
+### How the agent learns about slate
+
+The installer writes a managed block into your repository's **root** `CLAUDE.md` that imports `AGENTS.md` and tells the agent to track work in slate:
 
 ```
 <!-- slate:begin -->
 ## Task tracking (slate)
-
-This repository tracks tasks with slate ...
-
-@slate/AGENTS.md
+...
+@tasks/AGENTS.md
 <!-- slate:end -->
 ```
 
-Why this step is required: Claude Code always loads the repository's **root** `CLAUDE.md`, but a `CLAUDE.md` nested inside `slate/` only loads when the agent happens to work in that subtree, and `AGENTS.md` is not auto-loaded at all. The root import is the only thing that makes an agent working anywhere in the repo aware of the tracker. The installer adds it for you; you can also add the `@`-import line by hand. Other agent tools can reference `AGENTS.md` directly.
+This step is load-bearing. Claude Code always loads the **root** `CLAUDE.md`, but a nested one loads only when the agent works in that subtree, and `AGENTS.md` is not auto-loaded at all — so the root import is the only thing that makes an agent working anywhere in the repo aware of the tracker. Run it alone any time with `python3 tasks/slate.py install`. Other agent tools can reference `AGENTS.md` directly.
 
 ---
 
