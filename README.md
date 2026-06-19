@@ -4,9 +4,9 @@
   <sub>the task tracker humans and AI agents share</sub>
 </h1>
 
-You and your AI agent work the same project. You should be tracking the same tasks.
+Humans and AIs build software together, and both need to track the work. They do not perceive it alike. A human needs visual layout — a board, state at a glance. An AI does not; it reads and writes structured text directly.
 
-slate keeps that work as plain markdown — one file per issue — and renders it as a live, read-only board. The agent reads and edits the files. You read the board. One source, two forms, each suited to its reader; neither has to translate.
+A normal tracker resolves this for the human: the work lives in a database behind a visual interface, and the machine reaches it through an API, second-class. slate inverts the order. The work is plain markdown — one file per issue, what an agent reads and writes natively — and the board is rendered from it, for you. Neither reader is an afterthought.
 
 The markdown is the system of record. The viewer is a single Python file, standard library only. Delete it and nothing is lost.
 
@@ -40,7 +40,7 @@ The installer writes a managed block into your repository's **root** `CLAUDE.md`
 <!-- slate:end -->
 ```
 
-This step is load-bearing. Claude Code always loads the **root** `CLAUDE.md`, but a nested one loads only when the agent works in that subtree, and `AGENTS.md` is not auto-loaded at all — so the root import is the only thing that makes an agent working anywhere in the repo aware of the tracker. Run it alone any time with `python3 tasks/slate.py install`. Other agent tools can reference `AGENTS.md` directly.
+This step is required. Claude Code always loads the **root** `CLAUDE.md`, but a nested one loads only when the agent works in that subtree, and `AGENTS.md` is not auto-loaded at all — so the root import is the only thing that makes an agent working anywhere in the repo aware of the tracker. Run it alone any time with `python3 tasks/slate.py install`. Other agent tools can reference `AGENTS.md` directly.
 
 ---
 
