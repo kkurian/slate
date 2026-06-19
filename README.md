@@ -18,13 +18,25 @@ No dependencies. The viewer uses only the Python 3 standard library — no pip, 
 
 ### Tell your agent
 
-slate ships `AGENTS.md` — operating instructions an AI coding agent follows to create and update issues. To make a Claude Code agent aware of the tracker, import it from your repository's `CLAUDE.md`:
+slate ships `AGENTS.md` — operating instructions an AI coding agent follows to create and update issues. Run the installer once, from wherever you placed slate:
+
+```sh
+python3 slate.py install
+```
+
+This writes a managed block into your repository's **root** `CLAUDE.md` (creating it if absent) that imports `AGENTS.md` and instructs the agent to track work in slate. It is idempotent — re-running updates the block in place. The block looks like:
 
 ```
-@tasks/slate/AGENTS.md
+<!-- slate:begin -->
+## Task tracking (slate)
+
+This repository tracks tasks with slate ...
+
+@slate/AGENTS.md
+<!-- slate:end -->
 ```
 
-Adjust the path to wherever you placed slate. Other agent tools can reference `AGENTS.md` directly. Without this step an agent has to infer the conventions; with it, every session knows them. Because slate's data is the same markdown the agent already reads and writes, the instructions teach conventions, not an API.
+Why this step is required: Claude Code always loads the repository's **root** `CLAUDE.md`, but a `CLAUDE.md` nested inside `slate/` only loads when the agent happens to work in that subtree, and `AGENTS.md` is not auto-loaded at all. The root import is the only thing that makes an agent working anywhere in the repo aware of the tracker. The installer adds it for you; you can also add the `@`-import line by hand. Other agent tools can reference `AGENTS.md` directly.
 
 ---
 

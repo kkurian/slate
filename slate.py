@@ -9,6 +9,7 @@ Usage:
     python3 slate.py            # live server at http://localhost:8787
     python3 slate.py serve      # same
     python3 slate.py build out  # write standalone HTML into ./out/
+    python3 slate.py install    # make the host repo's agent aware of slate
 
 Env:
     SLATE_PORT   override the port (default 8787)
@@ -639,9 +640,57 @@ def build(outdir):
     print(f"built static site → {out}/  (index.html + {count} issues)")
 
 
+SLATE_BEGIN = "<!-- slate:begin -->"
+SLATE_END = "<!-- slate:end -->"
+
+
+def _git_root(start):
+    start = start.resolve()
+    for d in (start, *start.parents):
+        if (d / ".git").exists():
+            return d
+    return None
+
+
+def install(target=None):
+    """Make the host repo's agent aware of slate.
+
+    Idempotently writes a managed block into the repo's root CLAUDE.md that (1)
+    instructs the agent to track work here and (2) imports AGENTS.md so Claude Code
+    loads the conventions every session. Re-running updates the block in place.
+    """
+    root = Path(target).resolve() if target else (_git_root(ROOT) or ROOT.parent)
+    claude = root / "CLAUDE.md"
+    rel = os.path.relpath(ROOT / "AGENTS.md", root).replace(os.sep, "/")
+    block = (
+        f"{SLATE_BEGIN}\n"
+        "## Task tracking (slate)\n\n"
+        "This repository tracks tasks with slate — a task tracker kept in plain "
+        "markdown. Track all work here: when you start, advance, or finish a task, "
+        "create or update the corresponding issue and keep its `status` current. "
+        "The conventions follow.\n\n"
+        f"@{rel}\n"
+        f"{SLATE_END}"
+    )
+    existing = claude.read_text(encoding="utf-8") if claude.exists() else ""
+    if SLATE_BEGIN in existing and SLATE_END in existing:
+        pre = existing[:existing.index(SLATE_BEGIN)]
+        post = existing[existing.index(SLATE_END) + len(SLATE_END):]
+        new, action = pre + block + post, "updated slate block in"
+    elif existing.strip():
+        new, action = existing.rstrip() + "\n\n" + block + "\n", "added slate block to"
+    else:
+        new, action = block + "\n", "created"
+    claude.write_text(new, encoding="utf-8")
+    print(f"slate: {action} {claude}")
+    print(f"slate: agent will load @{rel} every session")
+
+
 if __name__ == "__main__":
     cmd = sys.argv[1] if len(sys.argv) > 1 else "serve"
     if cmd == "build":
         build(sys.argv[2] if len(sys.argv) > 2 else "_site")
+    elif cmd == "install":
+        install(sys.argv[2] if len(sys.argv) > 2 else None)
     else:
         serve()
