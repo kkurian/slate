@@ -1,7 +1,7 @@
 <h1 align="center">
   s l a t e
   <br>
-  <sub>the task tracker humans and AI agents share</sub>
+  <sub>AI task tracking for humans</sub>
 </h1>
 
 Humans and AIs build software together, and both need to track the work. They do not perceive it alike. A human needs visual layout — a board, state at a glance. An AI does not; it reads and writes structured text directly.
