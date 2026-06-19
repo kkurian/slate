@@ -4,7 +4,7 @@
   <sub>AI task tracking for humans</sub>
 </h1>
 
-Humans and AIs build software together, and both need to track the work. They do not perceive it alike. A human comprehends spatially: meaning is carried by arrangement, and a board makes state legible at a glance. An AI takes no benefit from layout — it reads structure directly in the text and writes it back in the same form.
+Humans and AIs build software together, and both need to track the work. The problem is they perceive things differently. A human comprehends spatially: meaning is carried by arrangement, and a board makes state legible at a glance. An AI takes no benefit from layout — it reads structure directly in the text and writes it back in the same form.
 
 A normal tracker resolves this for the human: the work lives in a database behind a visual interface, and the machine reaches it through an API, second-class. slate inverts the order. The work is plain markdown — one file per issue, what an agent reads and writes natively — and the board is rendered from it, for you. Neither reader is an afterthought.
 
