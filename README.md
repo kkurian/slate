@@ -8,6 +8,10 @@ A task tracker normally lives in someone else's database. The issues are rows in
 
 slate inverts this. The tracker is plain markdown on disk — one file for the project, one file per issue. You read and edit it in any editor, diff it in git, browse it on GitHub. slate is only a viewer: a single Python file that renders the markdown as a read-only web board with a live, dark, Linear-style interface. Delete the viewer and nothing is lost. The files are the system of record.
 
+<p align="center">
+  <img src="docs/screenshot.png" alt="slate rendering a task board: a status-grouped sidebar, count chips, and the project overview in a dark, Linear-style interface" width="820">
+</p>
+
 ---
 
 ## Install
