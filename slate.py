@@ -652,38 +652,60 @@ def _git_root(start):
     return None
 
 
-def install(target=None):
-    """Make the host repo's agent aware of slate.
-
-    Idempotently writes a managed block into the repo's root CLAUDE.md that (1)
-    instructs the agent to track work here and (2) imports AGENTS.md so Claude Code
-    loads the conventions every session. Re-running updates the block in place.
-    """
-    root = Path(target).resolve() if target else (_git_root(ROOT) or ROOT.parent)
-    claude = root / "CLAUDE.md"
-    rel = os.path.relpath(ROOT / "AGENTS.md", root).replace(os.sep, "/")
-    block = (
+def _agent_block(pointer):
+    body = (
         f"{SLATE_BEGIN}\n"
         "## Task tracking (slate)\n\n"
         "This repository tracks tasks with slate — a task tracker kept in plain "
         "markdown. Track all work here: when you start, advance, or finish a task, "
-        "create or update the corresponding issue and keep its `status` current. "
-        "The conventions follow.\n\n"
-        f"@{rel}\n"
-        f"{SLATE_END}"
+        "create or update the corresponding issue and keep its `status` current.\n"
     )
-    existing = claude.read_text(encoding="utf-8") if claude.exists() else ""
+    if pointer:
+        body += f"\n{pointer}\n"
+    return body + SLATE_END
+
+
+def _write_block(path, pointer):
+    block = _agent_block(pointer)
+    existing = path.read_text(encoding="utf-8") if path.exists() else ""
     if SLATE_BEGIN in existing and SLATE_END in existing:
         pre = existing[:existing.index(SLATE_BEGIN)]
         post = existing[existing.index(SLATE_END) + len(SLATE_END):]
-        new, action = pre + block + post, "updated slate block in"
+        new, verb = pre + block + post, "updated"
     elif existing.strip():
-        new, action = existing.rstrip() + "\n\n" + block + "\n", "added slate block to"
+        new, verb = existing.rstrip() + "\n\n" + block + "\n", "updated"
     else:
-        new, action = block + "\n", "created"
-    claude.write_text(new, encoding="utf-8")
-    print(f"slate: {action} {claude}")
-    print(f"slate: agent will load @{rel} every session")
+        new, verb = block + "\n", "created"
+    path.write_text(new, encoding="utf-8")
+    return verb
+
+
+def install(target=None):
+    """Make the host repo's agent aware of slate.
+
+    Writes a managed block into the repo's root agent-instructions file telling the
+    agent to track work in slate. Targets CLAUDE.md and/or AGENTS.md — whichever the
+    repo already uses (Claude Code reads CLAUDE.md; other tools read AGENTS.md) — and
+    defaults to CLAUDE.md when neither exists. CLAUDE.md gets an @-import of the
+    conventions; AGENTS.md, which has no import mechanism, gets a path reference.
+    Idempotent: re-running updates the block in place.
+    """
+    root = Path(target).resolve() if target else (_git_root(ROOT) or ROOT.parent)
+    conventions = (ROOT / "AGENTS.md").resolve()
+    rel = os.path.relpath(conventions, root).replace(os.sep, "/")
+
+    files = [n for n in ("CLAUDE.md", "AGENTS.md") if (root / n).exists()] or ["CLAUDE.md"]
+    for name in files:
+        path = root / name
+        if path.resolve() == conventions:
+            pointer = ""                                  # conventions are in this file
+        elif name == "CLAUDE.md":
+            pointer = f"@{rel}"                            # Claude Code resolves the import
+        else:
+            pointer = f"Read `{rel}` before creating or updating issues."
+        verb = _write_block(path, pointer)
+        print(f"slate: {verb} block in {path}")
+    print("slate: agent will track work in slate")
 
 
 if __name__ == "__main__":

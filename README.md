@@ -24,13 +24,13 @@ From your repository root:
 bash <(curl -fsSL https://raw.githubusercontent.com/bioneural/slate/main/install.sh)
 ```
 
-This copies slate into `tasks/` (pass a different directory as the argument), writes a starter `project.md`, and makes your agent aware of the tracker. Re-run any time to update; your `project.md`, your issues, and your `CLAUDE.md` content are left untouched.
+This copies slate into `tasks/` (pass a different directory as the argument), writes a starter `project.md`, and makes your agent aware of the tracker. Re-run any time to update; your `project.md`, your issues, and your existing agent instructions (`CLAUDE.md` or `AGENTS.md`) are left untouched.
 
 The only requirements are a Python 3 interpreter and `curl` — both already on your system. The viewer itself uses nothing but the Python 3 standard library: no pip, no npm, no build step.
 
 ### How the agent learns about slate
 
-The installer writes a managed block into your repository's **root** `CLAUDE.md` that imports `AGENTS.md` and tells the agent to track work in slate:
+The installer writes a managed block into your repository's **root** agent-instructions file, telling the agent to track work in slate. It targets whichever your repo already uses — `CLAUDE.md`, `AGENTS.md`, or both — and defaults to `CLAUDE.md` when neither exists:
 
 ```
 <!-- slate:begin -->
@@ -40,7 +40,9 @@ The installer writes a managed block into your repository's **root** `CLAUDE.md`
 <!-- slate:end -->
 ```
 
-This step is required. Claude Code always loads the **root** `CLAUDE.md`, but a nested one loads only when the agent works in that subtree, and `AGENTS.md` is not auto-loaded at all — so the root import is the only thing that makes an agent working anywhere in the repo aware of the tracker. Run it alone any time with `python3 tasks/slate.py install`. Other agent tools can reference `AGENTS.md` directly.
+This step is required. An agent loads only the **root** instructions file across the whole repo; a copy nested under `tasks/` loads only when the agent happens to work in that subtree. The root block is the one thing that makes an agent working anywhere in the repo aware of the tracker.
+
+`CLAUDE.md` gets an `@`-import (`@tasks/AGENTS.md`), so Claude Code loads the conventions every session. `AGENTS.md` has no import mechanism, so it gets a path reference to the same file instead. Run this step alone any time with `python3 tasks/slate.py install`.
 
 ---
 
