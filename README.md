@@ -82,7 +82,7 @@ What this is and why it matters. Link issues with [[T-2]] wikilinks.
 - [ ] A concrete, checkable outcome
 ```
 
-- `status`: Backlog, Todo, In Progress, In Review, Done, Canceled — drives the sidebar grouping and the board counts.
+- `status`: Backlog, Icebox, Todo, In Progress, In Review, Done, Canceled — drives the sidebar grouping and the board counts.
 - `priority`: Urgent, High, Medium, Low, No priority — drives the priority marks.
 - Link issues to each other with `[[T-2]]` wikilinks.
 

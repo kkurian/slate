@@ -35,7 +35,7 @@ updated: $(date +%F)
 
 Tasks for this project. Copy templates/issue.md to issues/<ID>.md to add one.
 
-Status values: Backlog, Todo, In Progress, In Review, Done, Canceled.
+Status values: Backlog, Icebox, Todo, In Progress, In Review, Done, Canceled.
 Priority values: Urgent, High, Medium, Low, No priority.
 EOF
   echo "slate: wrote starter $DIR/project.md"

@@ -29,7 +29,7 @@ frontmatter. It appears on the board automatically.
 
 ## Conventions
 
-- `status`: Backlog, Todo, In Progress, In Review, Done, Canceled.
+- `status`: Backlog, Icebox, Todo, In Progress, In Review, Done, Canceled.
 - `priority`: Urgent, High, Medium, Low, No priority.
 - Link issues to each other with `[[SLATE-1]]` wikilinks.
 

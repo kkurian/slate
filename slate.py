@@ -35,7 +35,7 @@ PORT = int(os.environ.get("SLATE_PORT", "8787"))
 MODE = "live"
 
 # Sidebar grouping order, mirroring Linear's workflow states.
-STATUS_ORDER = ["In Progress", "Todo", "In Review", "Backlog", "Done", "Canceled"]
+STATUS_ORDER = ["In Progress", "Todo", "In Review", "Backlog", "Icebox", "Done", "Canceled"]
 ALWAYS_SHOW = {"In Progress", "Todo", "Backlog"}
 
 
@@ -407,6 +407,8 @@ def status_icon(status):
 
     if s == "backlog":
         return _svg(ring("#6e7178", ' stroke-dasharray="1.6 1.8"'))
+    if s == "icebox":
+        return _svg(ring("#5c7fa3", ' stroke-dasharray="1.6 1.8"'))
     if s == "todo":
         return _svg(ring("#6e7178"))
     if s == "in-progress":
