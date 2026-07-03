@@ -1,14 +1,14 @@
 ---
 title: slate
 status: Active
-updated: 2026-06-19
+updated: 2026-07-03
 ---
 
 # slate
 
 A local task tracker kept in plain markdown. This project file references one
-markdown file per issue under `issues/`. The board above counts issues by status;
-the sidebar lists them.
+markdown file per issue under `issues/`. The sidebar groups and counts issues by
+status; drag one within its group to reorder.
 
 slate is the viewer, not the data. The markdown files are the source of truth —
 readable in any editor or on GitHub. If the viewer breaks, nothing is lost.
