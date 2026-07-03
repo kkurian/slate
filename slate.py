@@ -325,6 +325,10 @@ a{color:var(--ink);text-decoration:none}
 .item:hover{background:var(--hover)}
 .item.active{background:var(--active)}
 .item.dragging{opacity:.45}
+.grip{flex:none;display:flex;align-items:center;width:10px;margin-right:-5px;
+  color:#6e7178;opacity:0;cursor:grab;transition:opacity .12s}
+.item:hover .grip{opacity:.75}
+.item.dragging .grip{cursor:grabbing}
 .iid{color:var(--faint);font-variant-numeric:tabular-nums;flex:none;font-size:12.5px}
 .ititle{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#c4c6cc}
 .item.active .ititle{color:var(--ink)}
@@ -515,8 +519,16 @@ def page(title, sidebar, main, props="", live=True):
     )
 
 
+GRIP = ('<span class="grip" title="Drag to reorder">'
+        '<svg viewBox="0 0 10 16" width="10" height="16" aria-hidden="true">'
+        + "".join(f'<circle cx="{x}" cy="{y}" r="1.1" fill="currentColor"/>'
+                  for y in (4, 8, 12) for x in (3, 7))
+        + "</svg></span>")
+
+
 def sidebar_html(active=None):
     issues = list_issues()
+    live = MODE == "live"   # drag affordances are pointless in a static build
     parts = [f'<a class="brand" href="{url_for("project")}"><span class="logo"></span>'
              f'{html.escape(project_title())}</a>']
     for status in STATUS_ORDER:
@@ -524,15 +536,17 @@ def sidebar_html(active=None):
         if not rows and status not in ALWAYS_SHOW:
             continue
         is_open = status not in COLLAPSED or any(it["id"] == active for it in rows)
-        parts.append(f'<details class="group" data-status="{html.escape(status, quote=True)}"'
-                     f'{" open" if is_open else ""}>'
+        data = f' data-status="{html.escape(status, quote=True)}"' if live else ""
+        parts.append(f'<details class="group"{data}{" open" if is_open else ""}>'
                      f'<summary class="group-h">{status_icon(status)}'
                      f'{html.escape(status)}<span class="n">{len(rows)}</span></summary>')
         for it in rows:
             cls = "item active" if it["id"] == active else "item"
+            drag = (f' draggable="true" data-id="{html.escape(it["id"], quote=True)}"'
+                    if live else "")
             parts.append(
-                f'<a class="{cls}" draggable="true" data-id="{html.escape(it["id"], quote=True)}" '
-                f'href="{url_for("issue", it["id"])}">'
+                f'<a class="{cls}"{drag} href="{url_for("issue", it["id"])}">'
+                f'{GRIP if live else ""}'
                 f'{priority_icon(it["priority"])}'
                 f'<span class="iid">{html.escape(it["id"])}</span>'
                 f'<span class="ititle">{html.escape(it["title"])}</span></a>'
