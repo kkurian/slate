@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""slate — a read-only web view of a task tracker kept in plain markdown.
+"""slate — a web view of a task tracker kept in plain markdown.
 
-The tracker lives in plain markdown (project.md + issues/*.md). This file is just
-a *viewer*; if it ever breaks, every file is still readable in any editor or on
-GitHub. Python 3 standard library only — no pip, no npm, no build step.
+The tracker lives in plain markdown (project.md + issues/*.md). This file is a
+*viewer* with one deliberate write path: dragging sidebar items to reorder them
+rewrites the `order:` frontmatter of the affected issues. Everything else is
+read-only; if the viewer ever breaks, every file is still readable in any editor
+or on GitHub. Python 3 standard library only — no pip, no npm, no build step.
 
 Usage:
     python3 slate.py            # live server at http://localhost:8787
@@ -249,6 +251,14 @@ def _id_key(item):
     return (m.group(1), int(m.group(2))) if m else (item["id"], 0)
 
 
+def _sort_key(item):
+    # Issues with an explicit `order` come first (ascending); the rest follow in id order.
+    try:
+        return (0, int(item["order"]), _id_key(item))
+    except (TypeError, ValueError):
+        return (1, 0, _id_key(item))
+
+
 def list_issues():
     items = []
     if ISSUES.exists():
@@ -259,8 +269,9 @@ def list_issues():
                 "title": meta.get("title", p.stem),
                 "status": meta.get("status", "Backlog"),
                 "priority": meta.get("priority", "No priority"),
+                "order": meta.get("order"),
             })
-    items.sort(key=_id_key)
+    items.sort(key=_sort_key)
     return items
 
 
@@ -313,6 +324,7 @@ a{color:var(--ink);text-decoration:none}
 .item{display:flex;align-items:center;gap:9px;padding:6px 8px;border-radius:6px;color:var(--ink);font-size:13px}
 .item:hover{background:var(--hover)}
 .item.active{background:var(--active)}
+.item.dragging{opacity:.45}
 .iid{color:var(--faint);font-variant-numeric:tabular-nums;flex:none;font-size:12.5px}
 .ititle{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#c4c6cc}
 .item.active .ititle{color:var(--ink)}
@@ -386,6 +398,47 @@ SSE_SCRIPT = """<script>
     load(u.pathname, false);
   });
   window.addEventListener('popstate', function(){ load(location.pathname, true); });
+
+  // Drag-to-reorder within a sidebar status group. The drop POSTs the group's new
+  // id sequence to /reorder; the server renumbers `order:` in the issue files and
+  // the SSE reload below re-renders everything from the markdown.
+  var dragEl = null, dragIds = '';
+  function groupIds(group){
+    return Array.prototype.map.call(
+      group.querySelectorAll('.item[data-id]'), function(el){ return el.dataset.id; });
+  }
+  document.addEventListener('dragstart', function(e){
+    var it = e.target.closest('.sidebar .item[data-id]');
+    if(!it) return;
+    dragEl = it;
+    dragIds = groupIds(it.closest('.group')).join(',');
+    it.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
+    try{ e.dataTransfer.setData('text/plain', it.dataset.id); }catch(_){}
+  });
+  document.addEventListener('dragover', function(e){
+    if(!dragEl) return;
+    var over = e.target.closest('.sidebar .item[data-id]');
+    if(!over || over === dragEl) return;
+    if(over.closest('.group') !== dragEl.closest('.group')) return;   // same status only
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    var r = over.getBoundingClientRect();
+    over.parentNode.insertBefore(dragEl, e.clientY < r.top + r.height/2 ? over : over.nextSibling);
+  });
+  document.addEventListener('drop', function(e){ if(dragEl) e.preventDefault(); });
+  document.addEventListener('dragend', function(){
+    if(!dragEl) return;
+    var it = dragEl, group = it.closest('.group');
+    dragEl = null;
+    it.classList.remove('dragging');
+    if(!group) return;
+    var ids = groupIds(group);
+    if(ids.join(',') === dragIds) return;                             // nothing moved
+    fetch('/reorder', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({status: group.dataset.status, ids: ids})});
+  });
+
   try{
     var es = new EventSource('/events');
     es.onmessage = function(){ load(location.pathname, true); };   // live reload, snappy + keeps scroll
@@ -471,13 +524,15 @@ def sidebar_html(active=None):
         if not rows and status not in ALWAYS_SHOW:
             continue
         is_open = status not in COLLAPSED or any(it["id"] == active for it in rows)
-        parts.append(f'<details class="group"{" open" if is_open else ""}>'
+        parts.append(f'<details class="group" data-status="{html.escape(status, quote=True)}"'
+                     f'{" open" if is_open else ""}>'
                      f'<summary class="group-h">{status_icon(status)}'
                      f'{html.escape(status)}<span class="n">{len(rows)}</span></summary>')
         for it in rows:
             cls = "item active" if it["id"] == active else "item"
             parts.append(
-                f'<a class="{cls}" href="{url_for("issue", it["id"])}">'
+                f'<a class="{cls}" draggable="true" data-id="{html.escape(it["id"], quote=True)}" '
+                f'href="{url_for("issue", it["id"])}">'
                 f'{priority_icon(it["priority"])}'
                 f'<span class="iid">{html.escape(it["id"])}</span>'
                 f'<span class="ititle">{html.escape(it["title"])}</span></a>'
@@ -550,6 +605,43 @@ def render_issue_page(p, meta, body, live=True):
 
 
 # --------------------------------------------------------------------------- #
+# Reorder write path (the one place the viewer writes markdown)
+# --------------------------------------------------------------------------- #
+
+def _rewrite_meta(path, updates):
+    """Update frontmatter keys in place, preserving everything else verbatim."""
+    lines = path.read_text(encoding="utf-8").split("\n")
+    if not lines or lines[0].strip() != "---":
+        raise ValueError(f"{path.name}: no frontmatter")
+    end = next((j for j in range(1, len(lines)) if lines[j].strip() == "---"), None)
+    if end is None:
+        raise ValueError(f"{path.name}: unterminated frontmatter")
+    pending = dict(updates)
+    for j in range(1, end):
+        if ":" in lines[j]:
+            k = lines[j].split(":", 1)[0].strip()
+            if k in pending:
+                lines[j] = f"{k}: {pending.pop(k)}"
+    for k, v in pending.items():
+        lines.insert(end, f"{k}: {v}")
+        end += 1
+    path.write_text("\n".join(lines), encoding="utf-8")
+
+
+def apply_reorder(status, ids):
+    """Renumber `order:` 1..n for the given ids, which must all sit in `status`."""
+    if not isinstance(ids, list) or not all(isinstance(i, str) for i in ids):
+        raise ValueError("ids must be a list of issue ids")
+    current = {it["id"] for it in list_issues() if it["status"] == status}
+    if set(ids) != current:
+        raise ValueError(f"ids do not match the issues currently in {status!r}")
+    today = time.strftime("%Y-%m-%d")
+    for pos, iid in enumerate(ids, 1):
+        p, meta, _ = find_issue(iid)
+        _rewrite_meta(p, {"order": pos, "updated": today})
+
+
+# --------------------------------------------------------------------------- #
 # Live server + file watcher
 # --------------------------------------------------------------------------- #
 
@@ -603,6 +695,18 @@ class Handler(BaseHTTPRequestHandler):
             if res:
                 return self._html(render_issue_page(*res))
         self.send_error(404)
+
+    def do_POST(self):
+        if urllib.parse.urlparse(self.path).path != "/reorder":
+            return self.send_error(404)
+        try:
+            n = int(self.headers.get("Content-Length") or 0)
+            payload = json.loads(self.rfile.read(n))
+            apply_reorder(payload["status"], payload["ids"])
+        except (ValueError, KeyError, TypeError) as e:
+            return self.send_error(400, explain=str(e))
+        self.send_response(204)
+        self.end_headers()
 
     def _html(self, body):
         data = body.encode("utf-8")

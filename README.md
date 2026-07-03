@@ -55,6 +55,8 @@ python3 slate.py build out  # write standalone HTML into ./out/
 
 The live server renders `project.md` as a board and each `issues/*.md` as an issue. Navigation is instant — pages swap without a full reload. When any file changes on disk, open pages update in place and hold their scroll position.
 
+Drag an issue within its sidebar group to reorder it. This is the viewer's one write path: the drop renumbers the `order:` frontmatter of the issues in that group, so the markdown stays the source of truth. Static builds don't reorder.
+
 `build` emits self-contained HTML you can open without the server, or hand to someone who has no runtime at all.
 
 Set `SLATE_PORT` to override the default port.
@@ -84,6 +86,7 @@ What this is and why it matters. Link issues with [[T-2]] wikilinks.
 
 - `status`: Backlog, Todo, In Progress, In Review, Done, Canceled — drives the sidebar grouping and counts.
 - `priority`: Urgent, High, Medium, Low, No priority — drives the priority marks.
+- `order` (optional): integer position within the status group, lowest first; issues without it follow in id order. Set by dragging in the viewer, or by hand.
 - Link issues to each other with `[[T-2]]` wikilinks.
 
 Copy `templates/issue.md` to `issues/<ID>.md` to create an issue. It appears on the board with no rebuild. The sidebar brand shows whatever `title` you set in `project.md`, so slate reads as native to the project it sits in.

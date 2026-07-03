@@ -1,8 +1,9 @@
 # Working with slate
 
 slate is a task tracker kept in plain markdown — a project file and one file per
-issue, rendered by a read-only web viewer. The markdown is the source of truth. You
-maintain the tracker by editing the files, never through the rendered interface.
+issue, rendered by a web viewer. The markdown is the source of truth. You maintain
+the tracker by editing the files; the viewer's only write is drag-to-reorder in the
+sidebar, which rewrites the `order` frontmatter of the affected issues.
 
 ## Where things are
 
@@ -50,6 +51,9 @@ What this is and why it matters. Link issues with [[T-2]] wikilinks.
 - `status`: Backlog, Todo, In Progress, In Review, Done, Canceled. Drives the sidebar
   grouping and counts.
 - `priority`: Urgent, High, Medium, Low, No priority.
+- `order` (optional): integer position within the status group, lowest first. Issues
+  without it sort by id after the ordered ones. Usually set by dragging in the
+  viewer; you may also set or renumber it directly.
 - Reference another issue with a `[[T-2]]` wikilink.
 
 ## Create an issue
@@ -69,7 +73,8 @@ What this is and why it matters. Link issues with [[T-2]] wikilinks.
 
 ## Rules
 
-1. Edit the markdown files. The web viewer is read-only.
+1. Edit the markdown files. The web viewer writes nothing except `order` (and
+   `updated`) when the human drags to reorder.
 2. The markdown is canonical. Do not store task state anywhere else.
 3. One issue per file; `id` matches the filename stem.
 4. Keep `status` accurate — the board is only as correct as the frontmatter.
