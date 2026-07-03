@@ -35,8 +35,9 @@ PORT = int(os.environ.get("SLATE_PORT", "8787"))
 MODE = "live"
 
 # Sidebar grouping order, mirroring Linear's workflow states.
-STATUS_ORDER = ["In Progress", "Todo", "In Review", "Backlog", "Icebox", "Done", "Canceled"]
+STATUS_ORDER = ["In Progress", "In Review", "Todo", "Backlog", "Done", "Canceled"]
 ALWAYS_SHOW = {"In Progress", "Todo", "Backlog"}
+COLLAPSED = {"Done", "Canceled"}
 
 
 # --------------------------------------------------------------------------- #
@@ -306,7 +307,8 @@ a{color:var(--ink);text-decoration:none}
   position:sticky;top:0;height:100vh;overflow:auto}
 .brand{display:flex;align-items:center;gap:9px;font-weight:600;color:var(--ink);padding:6px 8px 16px}
 .group{margin:2px 0 12px}
-.group-h{display:flex;align-items:center;gap:8px;padding:5px 8px;font-size:12px;font-weight:600;color:var(--mut)}
+.group-h{display:flex;align-items:center;gap:8px;padding:5px 8px;font-size:12px;font-weight:600;color:var(--mut);cursor:pointer;list-style:none}
+.group-h::-webkit-details-marker{display:none}
 .group-h .n{margin-left:auto;color:var(--faint);font-weight:500}
 .item{display:flex;align-items:center;gap:9px;padding:6px 8px;border-radius:6px;color:var(--ink);font-size:13px}
 .item:hover{background:var(--hover)}
@@ -314,7 +316,14 @@ a{color:var(--ink);text-decoration:none}
 .iid{color:var(--faint);font-variant-numeric:tabular-nums;flex:none;font-size:12.5px}
 .ititle{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#c4c6cc}
 .item.active .ititle{color:var(--ink)}
-.content{padding:42px 60px;max-width:780px}
+.content{padding:42px 60px;max-width:780px;display:flex;flex-direction:column}
+.active{margin:6px 0 10px}
+.active .group-h{cursor:default;padding-left:0}
+.active .item{margin-left:-8px}
+.active-empty{margin:2px 0;font-size:13px;color:var(--faint)}
+.foot{margin-top:auto;padding-top:40px;font-size:12px;color:var(--faint);text-align:center}
+.foot a{color:var(--mut)}
+.foot a:hover{color:var(--ink)}
 .props{background:var(--sidebar);border-left:1px solid var(--line);padding:28px 22px;
   position:sticky;top:0;height:100vh;overflow:auto}
 .props h3{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--mut);margin:0 0 14px;font-weight:600}
@@ -407,8 +416,6 @@ def status_icon(status):
 
     if s == "backlog":
         return _svg(ring("#6e7178", ' stroke-dasharray="1.6 1.8"'))
-    if s == "icebox":
-        return _svg(ring("#5c7fa3", ' stroke-dasharray="1.6 1.8"'))
     if s == "todo":
         return _svg(ring("#6e7178"))
     if s == "in-progress":
@@ -441,6 +448,11 @@ def priority_icon(pri):
     return _svg("".join(bars))
 
 
+FOOTER = ('<footer class="foot">Powered by '
+          '<a href="https://github.com/bioneural/slate">slate</a> by '
+          '<a href="https://bioneural.com/about/">bioneural</a></footer>')
+
+
 def page(title, sidebar, main, props="", live=True):
     cls = "layout" if props else "layout no-props"
     props_html = f'<aside class="props">{props}</aside>' if props else ""
@@ -449,7 +461,7 @@ def page(title, sidebar, main, props="", live=True):
         '<meta name=viewport content="width=device-width,initial-scale=1">'
         f"<title>{html.escape(title)}</title><style>{CSS}</style></head><body>"
         f'<div class="{cls}"><aside class="sidebar">{sidebar}</aside>'
-        f'<main class="content">{main}</main>{props_html}</div>'
+        f'<main class="content">{main}{FOOTER}</main>{props_html}</div>'
         f"{SSE_SCRIPT if live else ''}</body></html>"
     )
 
@@ -462,8 +474,10 @@ def sidebar_html(active=None):
         rows = [it for it in issues if it["status"] == status]
         if not rows and status not in ALWAYS_SHOW:
             continue
-        parts.append(f'<div class="group"><div class="group-h">{status_icon(status)}'
-                     f'{html.escape(status)}<span class="n">{len(rows)}</span></div>')
+        is_open = status not in COLLAPSED or any(it["id"] == active for it in rows)
+        parts.append(f'<details class="group"{" open" if is_open else ""}>'
+                     f'<summary class="group-h">{status_icon(status)}'
+                     f'{html.escape(status)}<span class="n">{len(rows)}</span></summary>')
         for it in rows:
             cls = "item active" if it["id"] == active else "item"
             parts.append(
@@ -472,7 +486,7 @@ def sidebar_html(active=None):
                 f'<span class="iid">{html.escape(it["id"])}</span>'
                 f'<span class="ititle">{html.escape(it["title"])}</span></a>'
             )
-        parts.append("</div>")
+        parts.append("</details>")
     return "".join(parts)
 
 
@@ -511,11 +525,27 @@ def render_props(meta):
     return "".join(rows)
 
 
+def render_active():
+    issues = list_issues()
+    rows = []
+    for status in ("In Progress", "In Review"):
+        for it in (i for i in issues if i["status"] == status):
+            rows.append(
+                f'<a class="item" href="{url_for("issue", it["id"])}">'
+                f'{status_icon(it["status"])}{priority_icon(it["priority"])}'
+                f'<span class="iid">{html.escape(it["id"])}</span>'
+                f'<span class="ititle">{html.escape(it["title"])}</span></a>'
+            )
+    body = "".join(rows) if rows else '<p class="active-empty">Nothing in progress.</p>'
+    return f'<section class="active"><div class="group-h">Active</div>{body}</section>'
+
+
 def render_project_page(live=True):
     path = ROOT / "project.md"
     text = path.read_text(encoding="utf-8") if path.exists() else "# Project\n"
     meta, body = parse_doc(text)
-    main = render_board() + '<article class="md">' + render_blocks(body) + "</article>"
+    main = (render_board() + render_active()
+            + '<article class="md">' + render_blocks(body) + "</article>")
     return page(meta.get("title", "slate"), sidebar_html(None), main, live=live)
 
 
