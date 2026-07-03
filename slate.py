@@ -330,10 +330,6 @@ a{color:var(--ink);text-decoration:none}
 .props-dl{display:grid;grid-template-columns:82px 1fr;gap:12px;margin:0;font-size:13px;align-items:center}
 .props-dl dt{color:var(--mut)}
 .props-dl dd{margin:0;color:var(--ink);display:flex;align-items:center;gap:7px}
-.board{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 32px}
-.chip{display:flex;align-items:center;gap:9px;border:1px solid var(--line);border-radius:8px;
-  padding:9px 14px;background:var(--panel);min-width:104px}
-.chip b{font-size:18px;font-weight:600}.chip span{font-size:12px;color:var(--mut)}
 .issue-head{margin-bottom:28px}
 .issue-head .crumb{color:var(--faint);font-size:12.5px;font-variant-numeric:tabular-nums}
 .issue-head h1{margin:6px 0 14px;font-size:24px;font-weight:600;letter-spacing:-.012em}
@@ -490,17 +486,6 @@ def sidebar_html(active=None):
     return "".join(parts)
 
 
-def render_board():
-    issues = list_issues()
-    chips = []
-    for status in STATUS_ORDER:
-        c = sum(1 for it in issues if it["status"] == status)
-        if c or status in ALWAYS_SHOW:
-            chips.append(f'<div class="chip">{status_icon(status)}<b>{c}</b>'
-                         f'<span>{html.escape(status)}</span></div>')
-    return f'<div class="board">{"".join(chips)}</div>'
-
-
 def render_props(meta):
     fields = [("Status", "status"), ("Priority", "priority"), ("Assignee", "assignee"),
               ("Labels", "labels"), ("Project", "project"), ("Parent", "parent"),
@@ -544,7 +529,7 @@ def render_project_page(live=True):
     path = ROOT / "project.md"
     text = path.read_text(encoding="utf-8") if path.exists() else "# Project\n"
     meta, body = parse_doc(text)
-    main = (render_board() + render_active()
+    main = (render_active()
             + '<article class="md">' + render_blocks(body) + "</article>")
     return page(meta.get("title", "slate"), sidebar_html(None), main, live=live)
 

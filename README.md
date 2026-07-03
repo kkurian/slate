@@ -11,7 +11,7 @@ slate inverts the usual priorities of a task tracker. Most are built for the eye
 The markdown is the system of record. The viewer is one Python file, standard library only, and disposable. Delete it; nothing is lost.
 
 <p align="center">
-  <img src="docs/screenshot.png" alt="slate rendering a task board: a status-grouped sidebar, count chips, and the project overview in a dark, Linear-style interface" width="820">
+  <img src="docs/screenshot.png" alt="slate rendering a task board: a status-grouped sidebar, the active items, and the project overview in a dark, Linear-style interface" width="820">
 </p>
 
 ---
@@ -82,7 +82,7 @@ What this is and why it matters. Link issues with [[T-2]] wikilinks.
 - [ ] A concrete, checkable outcome
 ```
 
-- `status`: Backlog, Todo, In Progress, In Review, Done, Canceled — drives the sidebar grouping and the board counts.
+- `status`: Backlog, Todo, In Progress, In Review, Done, Canceled — drives the sidebar grouping and counts.
 - `priority`: Urgent, High, Medium, Low, No priority — drives the priority marks.
 - Link issues to each other with `[[T-2]]` wikilinks.
 

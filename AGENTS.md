@@ -47,7 +47,7 @@ What this is and why it matters. Link issues with [[T-2]] wikilinks.
 ```
 
 - `id` must equal the filename stem. `issues/T-1.md` has `id: T-1`.
-- `status`: Backlog, Todo, In Progress, In Review, Done, Canceled. Drives the board
+- `status`: Backlog, Todo, In Progress, In Review, Done, Canceled. Drives the sidebar
   grouping and counts.
 - `priority`: Urgent, High, Medium, Low, No priority.
 - Reference another issue with a `[[T-2]]` wikilink.
