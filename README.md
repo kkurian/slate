@@ -24,14 +24,14 @@ You already know the symptoms:
 
 ## How it works
 
-```
-              reads & writes                      renders, live
- Claude Code ───────────────►  tasks/issues/*.md ───────────────►  the board in your browser
-   sessions  ◄───────────────    (markdown —         slate.py           localhost:8787
-                                source of truth)
-                                       ▲                                      │
-                                       │     drag to reorder · status chip    │
-                                       └──────── the viewer's only writes ────┘
+```mermaid
+flowchart LR
+    agent["Claude Code<br/>sessions"]
+    files["tasks/issues/*.md<br/>markdown — the source of truth"]
+    board["the board in your browser<br/>localhost:8787"]
+    agent <-->|"reads & writes"| files
+    files -->|"slate.py renders, live"| board
+    board -->|"drag to reorder · status chip<br/>the viewer's only writes"| files
 ```
 
 - **Claude Code works the files directly.** No API, no MCP server, no credentials — the installer puts a managed block in your root `CLAUDE.md`/`AGENTS.md` that teaches it the conventions, and from then on it files, updates, and closes issues as it works.
