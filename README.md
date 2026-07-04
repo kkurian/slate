@@ -55,6 +55,8 @@ python3 slate.py build out  # write standalone HTML into ./out/
 
 The live server renders `project.md` as a board and each `issues/*.md` as an issue. Navigation is instant — pages swap without a full reload. When any file changes on disk, open pages update in place and hold their scroll position.
 
+That includes `slate.py` itself: edit the viewer and the server re-execs in place, and open pages reload when it comes back — styles and markup included. If the edit has a syntax error, the old server keeps running and waits for a fix.
+
 Drag an issue within its sidebar group to reorder it. This is the viewer's one write path: the drop renumbers the `order:` frontmatter of the issues in that group, so the markdown stays the source of truth. Static builds don't reorder.
 
 `build` emits self-contained HTML you can open without the server, or hand to someone who has no runtime at all.

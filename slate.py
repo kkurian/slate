@@ -386,6 +386,8 @@ SSE_SCRIPT = """<script>
     var next = doc.querySelector('.layout');
     if(!next) { location.href = url; return; }
     document.title = doc.title;
+    var st = doc.querySelector('head style');                     // CSS changes when slate.py does
+    if(st) document.querySelector('head style').replaceWith(document.importNode(st, true));
     document.querySelector('.layout').replaceWith(document.importNode(next, true));
     window.scrollTo(0, keepScroll ? y : 0);
   }
@@ -446,6 +448,11 @@ SSE_SCRIPT = """<script>
   try{
     var es = new EventSource('/events');
     es.onmessage = function(){ load(location.pathname, true); };   // live reload, snappy + keeps scroll
+    // Editing slate.py re-execs the server, dropping this stream. EventSource
+    // retries on its own; reload on the reconnect so new CSS/markup applies.
+    var lost = false;
+    es.onerror = function(){ lost = true; };
+    es.onopen = function(){ if(lost){ lost = false; load(location.pathname, true); } };
   }catch(e){}
 })();
 </script>"""
@@ -672,16 +679,32 @@ def _watched_files():
     return files
 
 
+SELF = Path(__file__).resolve()
+
+
+def _restart():
+    """Re-exec the server so an edited slate.py takes effect without a manual restart."""
+    try:
+        compile(SELF.read_text(encoding="utf-8"), str(SELF), "exec")
+    except SyntaxError as e:
+        print(f"slate.py changed but has a syntax error (line {e.lineno}); keeping the old server")
+        return
+    print("slate.py changed — restarting server")
+    os.execv(sys.executable, [sys.executable, str(SELF)] + sys.argv[1:])
+
+
 def watch():
     mtimes, init = {}, False
     while True:
         snap = {}
-        for p in _watched_files():
+        for p in [SELF] + _watched_files():
             try:
                 snap[p] = p.stat().st_mtime
             except FileNotFoundError:
                 continue
-        if init and snap != mtimes:
+        if init and snap.get(SELF) != mtimes.get(SELF):
+            _restart()   # returns only if the new source doesn't compile
+        elif init and snap != mtimes:
             changed = [p.name for p in set(snap) | set(mtimes) if snap.get(p) != mtimes.get(p)]
             STATE["changed"] = changed[0] if changed else ""
             STATE["version"] += 1
