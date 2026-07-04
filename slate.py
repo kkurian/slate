@@ -333,9 +333,9 @@ a{color:var(--ink);text-decoration:none}
 .ititle{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#c4c6cc}
 .item.active .ititle{color:var(--ink)}
 .content{padding:42px 60px;max-width:780px;display:flex;flex-direction:column}
-.active{margin:6px 0 10px}
-.active .group-h{cursor:default;padding-left:0}
-.active .item{margin-left:-8px}
+section.active{margin:6px 0 10px}
+section.active .group-h{cursor:default;padding-left:0}
+section.active .item{margin-left:-8px}
 .active-empty{margin:2px 0;font-size:13px;color:var(--faint)}
 .foot{margin-top:auto;padding-top:40px;font-size:12px;color:var(--faint);text-align:center}
 .foot a{color:var(--mut)}
