@@ -10,8 +10,9 @@ is still readable in any editor or on GitHub. Python 3 standard library only —
 no pip, no npm, no build step.
 
 The live server also shows agent presence: it watches Claude Code's session
-transcripts (~/.claude/projects/<slug>/*.jsonl, override with SLATE_TRANSCRIPTS)
-and marks issues an active agent has touched. Display-only, never written back.
+transcripts (under ~/.claude/projects/<slug>/, including workflow subagents;
+override with SLATE_TRANSCRIPTS) and marks the issue files an active agent is
+touching. Display-only, never written back.
 
 Usage:
     python3 slate.py            # live server at http://localhost:8787
@@ -782,11 +783,12 @@ def render_issue_page(p, meta, body, live=True):
 # --------------------------------------------------------------------------- #
 # Agent presence (read-only) — which issues have an agent on them, right now
 # --------------------------------------------------------------------------- #
-# Claude Code appends each session's transcript to ~/.claude/projects/<slug>/*.jsonl.
-# A fresh mtime means an agent is live; the transcript tail names the issues it
-# touched and the last tool it ran. Presence is ephemeral display state — never
-# written to the markdown, absent from static builds, fail-soft if transcripts
-# move or the format changes (no transcripts → no indicators, nothing else breaks).
+# Claude Code appends each session's transcript under ~/.claude/projects/<slug>/,
+# with workflow subagents nested a few levels down. A fresh mtime means an agent is
+# live; the tail's tool calls name the issue files it is touching. Presence is
+# ephemeral display state — never written to the markdown, absent from static builds,
+# fail-soft if transcripts move or the format changes (no transcripts → no
+# indicators, nothing else breaks).
 
 AGENT_FRESH = 90       # seconds of transcript silence before an agent is "gone"
 _TAIL_BYTES = 65536
