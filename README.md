@@ -57,7 +57,7 @@ The live server renders `project.md` as a board and each `issues/*.md` as an iss
 
 That includes `slate.py` itself: edit the viewer and the server re-execs in place, and open pages reload when it comes back — styles and markup included. If the edit has a syntax error, the old server keeps running and waits for a fix.
 
-Drag an issue within its sidebar group to reorder it. This is the viewer's one write path: the drop renumbers the `order:` frontmatter of the issues in that group, so the markdown stays the source of truth. Static builds don't reorder.
+Drag an issue within its sidebar group to reorder it (Esc cancels), or click the status chip on an issue page to move it to another state. These are the viewer's only write paths: they rewrite the `order:` / `status:` frontmatter of the affected issues, so the markdown stays the source of truth. Static builds get neither.
 
 `build` emits self-contained HTML you can open without the server, or hand to someone who has no runtime at all.
 

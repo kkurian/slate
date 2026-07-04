@@ -2,8 +2,9 @@
 """slate — a web view of a task tracker kept in plain markdown.
 
 The tracker lives in plain markdown (project.md + issues/*.md). This file is a
-*viewer* with one deliberate write path: dragging sidebar items to reorder them
-rewrites the `order:` frontmatter of the affected issues. Everything else is
+*viewer* with two deliberate write paths: dragging sidebar items to reorder them
+rewrites the `order:` frontmatter of the affected issues, and picking a state
+from an issue's status chip rewrites its `status:`. Everything else is
 read-only; if the viewer ever breaks, every file is still readable in any editor
 or on GitHub. Python 3 standard library only — no pip, no npm, no build step.
 
@@ -38,6 +39,8 @@ MODE = "live"
 
 # Sidebar grouping order, mirroring Linear's workflow states.
 STATUS_ORDER = ["In Progress", "In Review", "Todo", "Backlog", "Done", "Canceled"]
+# Lifecycle order — how the status menu lists them.
+LIFECYCLE = ["Backlog", "Todo", "In Progress", "In Review", "Done", "Canceled"]
 ALWAYS_SHOW = {"In Progress", "Todo", "Backlog"}
 COLLAPSED = {"Done", "Canceled"}
 
@@ -352,6 +355,17 @@ section.active .item{margin-left:-8px}
 .badges{display:flex;gap:8px}
 .badge{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:500;
   padding:4px 11px 4px 8px;border-radius:7px;border:1px solid var(--line);background:var(--panel)}
+.badge-menu{position:relative}
+.badge-menu>summary.badge{cursor:pointer;list-style:none;user-select:none}
+.badge-menu>summary.badge::-webkit-details-marker{display:none}
+.badge-menu>summary.badge:hover{border-color:var(--mut)}
+.menu{position:absolute;top:calc(100% + 6px);left:0;z-index:20;min-width:170px;
+  display:flex;flex-direction:column;padding:4px;background:var(--panel);
+  border:1px solid var(--line);border-radius:10px;box-shadow:0 10px 28px rgba(0,0,0,.45)}
+.menu-item{display:flex;align-items:center;gap:9px;padding:6px 10px;border:0;background:none;
+  color:var(--ink);font:inherit;font-size:13px;border-radius:6px;cursor:pointer;text-align:left}
+.menu-item:hover{background:var(--hover)}
+.menu-item.sel{background:var(--active)}
 .md{font-size:14.5px;line-height:1.7;color:#cfd1d7}
 .md h1,.md h2,.md h3{color:var(--ink);line-height:1.3;letter-spacing:-.01em}
 .md h2{margin-top:34px;font-size:17px;border-bottom:1px solid var(--line);padding-bottom:7px}
@@ -391,6 +405,27 @@ SSE_SCRIPT = """<script>
     document.querySelector('.layout').replaceWith(document.importNode(next, true));
     window.scrollTo(0, keepScroll ? y : 0);
   }
+  // Status chip: pick a state from the dropdown → POST → files change → SSE re-renders.
+  document.addEventListener('click', function(e){
+    var btn = e.target.closest('.badge-menu .menu-item');
+    if(btn){
+      var menu = btn.closest('.badge-menu');
+      menu.removeAttribute('open');
+      fetch('/status', {method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({id: menu.dataset.issue, status: btn.dataset.status})});
+      return;
+    }
+    document.querySelectorAll('details.badge-menu[open]').forEach(function(d){
+      if(!d.contains(e.target)) d.removeAttribute('open');   // click-away closes
+    });
+  });
+  document.addEventListener('keydown', function(e){
+    if(e.key !== 'Escape') return;
+    document.querySelectorAll('details.badge-menu[open]').forEach(function(d){
+      d.removeAttribute('open');
+    });
+  });
+
   document.addEventListener('click', function(e){
     if(e.metaKey||e.ctrlKey||e.shiftKey||e.button) return;
     var a = e.target.closest('a');
@@ -626,10 +661,21 @@ def render_issue_page(p, meta, body, live=True):
     title = meta.get("title", p.stem)
     status = meta.get("status", "Backlog")
     pri = meta.get("priority", "No priority")
+    if live:
+        opts = "".join(
+            f'<button class="menu-item{" sel" if s == status else ""}" '
+            f'data-status="{html.escape(s, quote=True)}">{status_icon(s)}{html.escape(s)}</button>'
+            for s in LIFECYCLE)
+        status_badge = (
+            f'<details class="badge-menu" data-issue="{html.escape(iid, quote=True)}">'
+            f'<summary class="badge">{status_icon(status)}{html.escape(status)}</summary>'
+            f'<div class="menu">{opts}</div></details>')
+    else:
+        status_badge = f'<span class="badge">{status_icon(status)}{html.escape(status)}</span>'
     head = (
         f'<div class="issue-head"><div class="crumb">{html.escape(iid)}</div>'
         f"<h1>{html.escape(title)}</h1>"
-        f'<div class="badges"><span class="badge">{status_icon(status)}{html.escape(status)}</span>'
+        f'<div class="badges">{status_badge}'
         f'<span class="badge">{priority_icon(pri)}{html.escape(pri)}</span></div></div>'
     )
     main = '<article class="md issue">' + head + render_blocks(body) + "</article>"
@@ -641,23 +687,28 @@ def render_issue_page(p, meta, body, live=True):
 # --------------------------------------------------------------------------- #
 
 def _rewrite_meta(path, updates):
-    """Update frontmatter keys in place, preserving everything else verbatim."""
+    """Update frontmatter keys in place, preserving everything else verbatim.
+    A value of None removes the key."""
     lines = path.read_text(encoding="utf-8").split("\n")
     if not lines or lines[0].strip() != "---":
         raise ValueError(f"{path.name}: no frontmatter")
     end = next((j for j in range(1, len(lines)) if lines[j].strip() == "---"), None)
     if end is None:
         raise ValueError(f"{path.name}: unterminated frontmatter")
-    pending = dict(updates)
-    for j in range(1, end):
-        if ":" in lines[j]:
-            k = lines[j].split(":", 1)[0].strip()
+    pending, out = dict(updates), []
+    for j, line in enumerate(lines):
+        if 0 < j < end and ":" in line:
+            k = line.split(":", 1)[0].strip()
             if k in pending:
-                lines[j] = f"{k}: {pending.pop(k)}"
-    for k, v in pending.items():
-        lines.insert(end, f"{k}: {v}")
-        end += 1
-    path.write_text("\n".join(lines), encoding="utf-8")
+                v = pending.pop(k)
+                if v is None:
+                    continue
+                line = f"{k}: {v}"
+        out.append(line)
+    tail = [f"{k}: {v}" for k, v in pending.items() if v is not None]
+    close = next(j for j in range(1, len(out)) if out[j].strip() == "---")
+    out[close:close] = tail
+    path.write_text("\n".join(out), encoding="utf-8")
 
 
 def apply_reorder(status, ids):
@@ -671,6 +722,18 @@ def apply_reorder(status, ids):
     for pos, iid in enumerate(ids, 1):
         p, meta, _ = find_issue(iid)
         _rewrite_meta(p, {"order": pos, "updated": today})
+
+
+def apply_status(iid, status):
+    """Move an issue to a new status. Its `order` belonged to the old group, so drop it."""
+    if status not in STATUS_ORDER:
+        raise ValueError(f"unknown status {status!r}")
+    res = find_issue(iid) if isinstance(iid, str) else None
+    if not res:
+        raise ValueError(f"unknown issue {iid!r}")
+    p, meta, _ = res
+    _rewrite_meta(p, {"status": status, "order": None,
+                      "updated": time.strftime("%Y-%m-%d")})
 
 
 # --------------------------------------------------------------------------- #
@@ -745,12 +808,16 @@ class Handler(BaseHTTPRequestHandler):
         self.send_error(404)
 
     def do_POST(self):
-        if urllib.parse.urlparse(self.path).path != "/reorder":
+        path = urllib.parse.urlparse(self.path).path
+        if path not in ("/reorder", "/status"):
             return self.send_error(404)
         try:
             n = int(self.headers.get("Content-Length") or 0)
             payload = json.loads(self.rfile.read(n))
-            apply_reorder(payload["status"], payload["ids"])
+            if path == "/reorder":
+                apply_reorder(payload["status"], payload["ids"])
+            else:
+                apply_status(payload["id"], payload["status"])
         except (ValueError, KeyError, TypeError) as e:
             return self.send_error(400, explain=str(e))
         self.send_response(204)
