@@ -843,6 +843,34 @@ def _last_tool(text):
     return ""
 
 
+def _touched_issues(text, id_pat):
+    """Issue ids a session is actually acting on — its markdown file (issues/<ID>.md)
+    is the target of a tool call — not ids merely mentioned in passing (grep output,
+    git status, a wikilink), which would light spurious dots. id_pat matches
+    'issues/<ID>.md' and captures <ID>. Only tool_use path/command args are scanned,
+    so a bare 'BZ-14' echoed anywhere in the tail no longer counts as work."""
+    hit = set()
+    for line in text.split("\n"):
+        if '"tool_use"' not in line:
+            continue
+        try:
+            evt = json.loads(line)
+        except ValueError:
+            continue
+        content = (evt.get("message") or {}).get("content")
+        if not isinstance(content, list):
+            continue
+        for block in content:
+            if not (isinstance(block, dict) and block.get("type") == "tool_use"):
+                continue
+            inp = block.get("input") if isinstance(block.get("input"), dict) else {}
+            for field in ("file_path", "command"):
+                v = inp.get(field)
+                if isinstance(v, str):
+                    hit.update(id_pat.findall(v))
+    return hit
+
+
 def _session_id(path, base):
     """Collapse a transcript path to its owning session. A plain session writes
     <slug>/<uuid>.jsonl; a workflow writes its subagents to
@@ -879,9 +907,9 @@ def agent_presence():
                     fresh.append((age, f, d, guards))
         if fresh:                            # only touch the tracker when someone is live
             ids = [it["id"] for it in list_issues()]
-            pat = (re.compile(r"(?<![\w-])(" + "|".join(
+            pat = (re.compile(r"issues/(" + "|".join(
                        re.escape(i) for i in sorted(ids, key=len, reverse=True))
-                   + r")(?![\w-])") if ids else None)
+                   + r")\.md") if ids else None)
             sessions = set()
             for age, f, d, guards in sorted(fresh, key=lambda t: t[0]):
                 text = _tail(f)
@@ -890,7 +918,7 @@ def agent_presence():
                 out["workers"] += 1
                 sessions.add(_session_id(f, d))
                 tool = _last_tool(text)
-                for iid in set(pat.findall(text)) if pat else ():
+                for iid in _touched_issues(text, pat) if pat else ():
                     cur = out["issues"].get(iid)
                     if cur is None or age < cur["age"]:
                         out["issues"][iid] = {"age": age, "tool": tool}
