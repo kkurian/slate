@@ -11,7 +11,7 @@ slate inverts the usual priorities of a task tracker. Most are built for the eye
 The markdown is the system of record. The viewer is one Python file, standard library only, and disposable. Delete it; nothing is lost.
 
 <p align="center">
-  <img src="docs/screenshot.png" alt="slate rendering a task board: a status-grouped sidebar, the active items, and the project overview in a dark, Linear-style interface" width="820">
+  <img src="docs/screenshot.png" alt="slate rendering a task board: a status navigation sidebar with counts and a full-width issue list in a dark, Linear-style interface" width="820">
 </p>
 
 ---
@@ -53,11 +53,11 @@ python3 slate.py            # live server at http://localhost:8787
 python3 slate.py build out  # write standalone HTML into ./out/
 ```
 
-The live server renders `project.md` as a board and each `issues/*.md` as an issue. Navigation is instant — pages swap without a full reload. When any file changes on disk, open pages update in place and hold their scroll position.
+The live server renders `project.md` as the overview, a list view per status, and each `issues/*.md` as an issue. Navigation is instant — pages swap without a full reload. When any file changes on disk, open pages update in place and hold their scroll position.
 
 That includes `slate.py` itself: edit the viewer and the server re-execs in place, and open pages reload when it comes back — styles and markup included. If the edit has a syntax error, the old server keeps running and waits for a fix.
 
-Drag an issue within its sidebar group to reorder it (Esc cancels), or click the status chip on an issue page to move it to another state. These are the viewer's only write paths: they rewrite the `order:` / `status:` frontmatter of the affected issues, so the markdown stays the source of truth. Static builds get neither.
+The sidebar is navigation: one row per status with a count. Open a status to see its issues as full-width rows, and drag a row within that view to reorder it (Esc cancels) — or click the status chip on an issue page to move it to another state. These are the viewer's only write paths: they rewrite the `order:` / `status:` frontmatter of the affected issues, so the markdown stays the source of truth. Static builds get neither. Drag the sidebar's edge to resize it.
 
 `build` emits self-contained HTML you can open without the server, or hand to someone who has no runtime at all.
 
@@ -86,7 +86,7 @@ What this is and why it matters. Link issues with [[T-2]] wikilinks.
 - [ ] A concrete, checkable outcome
 ```
 
-- `status`: Backlog, Todo, In Progress, In Review, Done, Canceled — drives the sidebar grouping and counts.
+- `status`: Backlog, Todo, In Progress, In Review, Done, Canceled — drives which status view an issue appears in and the sidebar counts.
 - `priority`: Urgent, High, Medium, Low, No priority — drives the priority marks.
 - `order` (optional): integer position within the status group, lowest first; issues without it follow in id order. Set by dragging in the viewer, or by hand.
 - Link issues to each other with `[[T-2]]` wikilinks.

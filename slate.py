@@ -2,11 +2,12 @@
 """slate — a web view of a task tracker kept in plain markdown.
 
 The tracker lives in plain markdown (project.md + issues/*.md). This file is a
-*viewer* with two deliberate write paths: dragging sidebar items to reorder them
-rewrites the `order:` frontmatter of the affected issues, and picking a state
-from an issue's status chip rewrites its `status:`. Everything else is
-read-only; if the viewer ever breaks, every file is still readable in any editor
-or on GitHub. Python 3 standard library only — no pip, no npm, no build step.
+*viewer* with two deliberate write paths: dragging issue rows within a status
+view to reorder them (Esc cancels) rewrites the `order:` frontmatter of the
+affected issues, and picking a state from an issue's status chip rewrites its
+`status:`. Everything else is read-only; if the viewer ever breaks, every file
+is still readable in any editor or on GitHub. Python 3 standard library only —
+no pip, no npm, no build step.
 
 Usage:
     python3 slate.py            # live server at http://localhost:8787
@@ -37,12 +38,11 @@ PORT = int(os.environ.get("SLATE_PORT", "8787"))
 # 'live' (server) generates /issue/<id> links; 'static' (build) generates <id>.html
 MODE = "live"
 
-# Sidebar grouping order, mirroring Linear's workflow states.
+# Sidebar nav order, mirroring Linear's workflow states.
 STATUS_ORDER = ["In Progress", "In Review", "Todo", "Backlog", "Done", "Canceled"]
 # Lifecycle order — how the status menu lists them.
 LIFECYCLE = ["Backlog", "Todo", "In Progress", "In Review", "Done", "Canceled"]
 ALWAYS_SHOW = {"In Progress", "Todo", "Backlog"}
-COLLAPSED = {"Done", "Canceled"}
 
 
 # --------------------------------------------------------------------------- #
@@ -77,8 +77,16 @@ def slug(s):
 
 def url_for(kind, ident=None):
     if MODE == "static":
-        return "index.html" if kind == "project" else f"{ident}.html"
-    return "/" if kind == "project" else f"/issue/{ident}"
+        if kind == "project":
+            return "index.html"
+        if kind == "status":
+            return f"status-{slug(ident)}.html"
+        return f"{ident}.html"
+    if kind == "project":
+        return "/"
+    if kind == "status":
+        return f"/status/{slug(ident)}"
+    return f"/issue/{ident}"
 
 
 def render_inline(s):
@@ -273,6 +281,7 @@ def list_issues():
                 "status": meta.get("status", "Backlog"),
                 "priority": meta.get("priority", "No priority"),
                 "order": meta.get("order"),
+                "updated": meta.get("updated", ""),
             })
     items.sort(key=_sort_key)
     return items
@@ -315,31 +324,45 @@ a{color:var(--ink);text-decoration:none}
 .ico{flex:none;vertical-align:-3px}
 .logo{width:18px;height:18px;border-radius:5px;flex:none;
   background:linear-gradient(135deg,#7d87e0,#a64ce8)}
-.layout{display:grid;grid-template-columns:244px minmax(0,1fr) 244px;min-height:100vh}
-.layout.no-props{grid-template-columns:244px minmax(0,1fr)}
+.layout{display:grid;grid-template-columns:var(--sbw,220px) minmax(0,1fr) 244px;min-height:100vh}
+.layout.no-props{grid-template-columns:var(--sbw,220px) minmax(0,1fr)}
 .sidebar{background:var(--sidebar);border-right:1px solid var(--line);padding:14px 8px;
   position:sticky;top:0;height:100vh;overflow:auto}
+.sash{position:fixed;top:0;bottom:0;left:calc(var(--sbw,220px) - 1px);width:5px;
+  cursor:col-resize;z-index:30}
+.sash:hover,.sash.on{background:rgba(255,255,255,.08)}
 .brand{display:flex;align-items:center;gap:9px;font-weight:600;color:var(--ink);padding:6px 8px 16px}
-.group{margin:2px 0 12px}
-.group-h{display:flex;align-items:center;gap:8px;padding:5px 8px;font-size:12px;font-weight:600;color:var(--mut);cursor:pointer;list-style:none}
-.group-h::-webkit-details-marker{display:none}
-.group-h .n{margin-left:auto;color:var(--faint);font-weight:500}
-.item{display:flex;align-items:center;gap:9px;padding:4px 8px;border-radius:6px;color:var(--ink);font-size:13px;line-height:1.5}
+.nav-row{display:flex;align-items:center;gap:9px;padding:4px 8px;border-radius:6px;
+  color:var(--mut);font-size:13px;font-weight:500;line-height:1.5}
+.nav-row:hover{background:var(--hover);color:var(--ink)}
+.nav-row.active{background:var(--active);color:var(--ink)}
+.nav-row .n{margin-left:auto;color:var(--faint);font-weight:500;font-size:12px;
+  font-variant-numeric:tabular-nums}
+.group-h{display:flex;align-items:center;gap:9px;padding:5px 8px;font-size:12px;font-weight:600;color:var(--mut)}
+.item{position:relative;display:flex;align-items:center;gap:9px;padding:4px 8px;border-radius:6px;color:var(--ink);font-size:13px;line-height:1.5}
 .item:hover{background:var(--hover)}
-.item.active{background:var(--active)}
+.item:hover .ititle{color:var(--ink)}
 .item.dragging{opacity:.45}
-.grip{flex:none;display:flex;align-items:center;width:10px;margin-right:-5px;
-  color:#6e7178;opacity:0;cursor:grab;transition:opacity .12s}
+.grip{position:absolute;left:-14px;top:50%;transform:translateY(-50%);display:flex;
+  align-items:center;color:#6e7178;opacity:0;cursor:grab;transition:opacity .12s}
 .item:hover .grip{opacity:.75}
 .item.dragging .grip{cursor:grabbing}
 .iid{color:var(--faint);font-variant-numeric:tabular-nums;flex:none;font-size:12.5px}
 .ititle{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#c4c6cc}
-.item.active .ititle{color:var(--ink)}
-.content{padding:42px 60px;max-width:780px;display:flex;flex-direction:column}
+.idate{margin-left:auto;flex:none;padding-left:14px;color:var(--faint);font-size:12.5px;
+  font-variant-numeric:tabular-nums}
+.content{padding:42px 60px;max-width:860px;display:flex;flex-direction:column}
+.view-head h1{display:flex;align-items:center;gap:9px;margin:0 0 18px;
+  font-size:18px;font-weight:600;letter-spacing:-.01em}
+.view-head .vcount{color:var(--faint);font-weight:500;font-size:14px}
+.list{display:flex;flex-direction:column;margin:0 -8px}
 section.active{margin:6px 0 10px}
-section.active .group-h{cursor:default;padding-left:0}
-section.active .item{margin-left:-8px}
-.active-empty{margin:2px 0;font-size:13px;color:var(--faint)}
+section.active .group-h{padding-left:0}
+.empty{margin:2px 0;font-size:13px;color:var(--faint)}
+@media (max-width:700px){
+  .content{padding:32px 22px}
+  .idate{display:none}
+}
 .foot{margin-top:auto;padding-top:40px;font-size:12px;color:var(--faint);text-align:center}
 .foot a{color:var(--mut)}
 .foot a:hover{color:var(--ink)}
@@ -432,7 +455,8 @@ SSE_SCRIPT = """<script>
     if(!a) return;
     var u = new URL(a.href, location.href);
     if(u.origin !== location.origin) return;                 // external link → default
-    if(u.pathname !== '/' && !u.pathname.startsWith('/issue/')) return;
+    if(u.pathname !== '/' && !u.pathname.startsWith('/issue/')
+       && !u.pathname.startsWith('/status/')) return;
     if(u.pathname === location.pathname && u.hash) return;    // in-page anchor → default
     e.preventDefault();
     history.pushState({}, '', u.pathname);
@@ -440,19 +464,19 @@ SSE_SCRIPT = """<script>
   });
   window.addEventListener('popstate', function(){ load(location.pathname, true); });
 
-  // Drag-to-reorder within a sidebar status group. The drop POSTs the group's new
+  // Drag-to-reorder within a status view's list. The drop POSTs the list's new
   // id sequence to /reorder; the server renumbers `order:` in the issue files and
   // the SSE reload below re-renders everything from the markdown.
   var dragEl = null, dragIds = '', dragHome = null;
-  function groupIds(group){
+  function listIds(list){
     return Array.prototype.map.call(
-      group.querySelectorAll('.item[data-id]'), function(el){ return el.dataset.id; });
+      list.querySelectorAll('.item[data-id]'), function(el){ return el.dataset.id; });
   }
   document.addEventListener('dragstart', function(e){
-    var it = e.target.closest('.sidebar .item[data-id]');
+    var it = e.target.closest('.list .item[data-id]');
     if(!it) return;
     dragEl = it;
-    dragIds = groupIds(it.closest('.group')).join(',');
+    dragIds = listIds(it.closest('.list')).join(',');
     dragHome = { parent: it.parentNode, next: it.nextSibling };   // for snap-back on cancel
     it.classList.add('dragging');
     e.dataTransfer.effectAllowed = 'move';
@@ -460,15 +484,15 @@ SSE_SCRIPT = """<script>
   });
   document.addEventListener('dragover', function(e){
     if(!dragEl || !e.target.closest) return;
-    // Accept the drop anywhere in the item's own group — including over the dragged
+    // Accept the drop anywhere in the row's own list — including over the dragged
     // row itself and the gaps. The row re-slots under the cursor while dragging, so
     // release usually happens over it; an unaccepted target there would make WebKit
-    // play its fly-back animation (and read as a canceled drag). Outside the group
+    // play its fly-back animation (and read as a canceled drag). Outside the list
     // stays unaccepted: dropping there cancels.
-    if(e.target.closest('.group') !== dragEl.closest('.group')) return;
+    if(e.target.closest('.list') !== dragEl.closest('.list')) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
-    var over = e.target.closest('.sidebar .item[data-id]');
+    var over = e.target.closest('.list .item[data-id]');
     if(!over || over === dragEl) return;
     var r = over.getBoundingClientRect();
     over.parentNode.insertBefore(dragEl, e.clientY < r.top + r.height/2 ? over : over.nextSibling);
@@ -476,7 +500,7 @@ SSE_SCRIPT = """<script>
   document.addEventListener('drop', function(e){ if(dragEl) e.preventDefault(); });
   document.addEventListener('dragend', function(e){
     if(!dragEl) return;
-    var it = dragEl, home = dragHome, group = it.closest('.group');
+    var it = dragEl, home = dragHome, list = it.closest('.list');
     dragEl = null; dragHome = null;
     it.classList.remove('dragging');
     // Esc or a drop outside any valid target cancels: snap back, save nothing.
@@ -484,11 +508,40 @@ SSE_SCRIPT = """<script>
       home.parent.insertBefore(it, home.next);
       return;
     }
-    if(!group) return;
-    var ids = groupIds(group);
+    if(!list) return;
+    var ids = listIds(list);
     if(ids.join(',') === dragIds) return;                             // nothing moved
     fetch('/reorder', {method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({status: group.dataset.status, ids: ids})});
+      body: JSON.stringify({status: list.dataset.status, ids: ids})});
+  });
+
+  // Sidebar width: drag the sash, persisted per browser.
+  try{
+    var w = localStorage.getItem('slate-sbw');
+    if(w) document.documentElement.style.setProperty('--sbw', w);
+  }catch(_){}
+  var sashing = false;
+  document.addEventListener('mousedown', function(e){
+    if(!e.target.closest || !e.target.closest('.sash')) return;
+    sashing = true;
+    e.target.closest('.sash').classList.add('on');
+    e.preventDefault();
+  });
+  document.addEventListener('mousemove', function(e){
+    if(!sashing) return;
+    e.preventDefault();
+    var px = Math.min(400, Math.max(160, e.clientX)) + 'px';
+    document.documentElement.style.setProperty('--sbw', px);
+  });
+  document.addEventListener('mouseup', function(){
+    if(!sashing) return;
+    sashing = false;
+    var s = document.querySelector('.sash');
+    if(s) s.classList.remove('on');
+    try{
+      localStorage.setItem('slate-sbw',
+        getComputedStyle(document.documentElement).getPropertyValue('--sbw').trim());
+    }catch(_){}
   });
 
   try{
@@ -562,12 +615,13 @@ FOOTER = ('<footer class="foot">rendered by '
 def page(title, sidebar, main, props="", live=True):
     cls = "layout" if props else "layout no-props"
     props_html = f'<aside class="props">{props}</aside>' if props else ""
+    sash = '<div class="sash" title="Drag to resize"></div>' if live else ""
     return (
         "<!doctype html><html lang=en><head><meta charset=utf-8>"
         '<meta name=viewport content="width=device-width,initial-scale=1">'
         f"<title>{html.escape(title)}</title><style>{CSS}</style></head><body>"
         f'<div class="{cls}"><aside class="sidebar">{sidebar}</aside>'
-        f'<main class="content">{main}{FOOTER}</main>{props_html}</div>'
+        f'<main class="content">{main}{FOOTER}</main>{props_html}{sash}</div>'
         f"{SSE_SCRIPT if live else ''}</body></html>"
     )
 
@@ -579,33 +633,49 @@ GRIP = ('<span class="grip" title="Drag to reorder">'
         + "</svg></span>")
 
 
-def sidebar_html(active=None):
+def sidebar_html(active_status=None):
+    """Navigation only — status views with counts, never issue titles (they'd truncate)."""
     issues = list_issues()
-    live = MODE == "live"   # drag affordances are pointless in a static build
     parts = [f'<a class="brand" href="{url_for("project")}"><span class="logo"></span>'
              f'{html.escape(project_title())}</a>']
     for status in STATUS_ORDER:
-        rows = [it for it in issues if it["status"] == status]
-        if not rows and status not in ALWAYS_SHOW:
+        count = sum(1 for it in issues if it["status"] == status)
+        if not count and status not in ALWAYS_SHOW:
             continue
-        is_open = status not in COLLAPSED or any(it["id"] == active for it in rows)
-        data = f' data-status="{html.escape(status, quote=True)}"' if live else ""
-        parts.append(f'<details class="group"{data}{" open" if is_open else ""}>'
-                     f'<summary class="group-h">{status_icon(status)}'
-                     f'{html.escape(status)}<span class="n">{len(rows)}</span></summary>')
-        for it in rows:
-            cls = "item active" if it["id"] == active else "item"
-            drag = (f' draggable="true" data-id="{html.escape(it["id"], quote=True)}"'
-                    if live else "")
-            parts.append(
-                f'<a class="{cls}"{drag} href="{url_for("issue", it["id"])}">'
-                f'{GRIP if live else ""}'
-                f'{priority_icon(it["priority"])}'
-                f'<span class="iid">{html.escape(it["id"])}</span>'
-                f'<span class="ititle">{html.escape(it["title"])}</span></a>'
-            )
-        parts.append("</details>")
+        cls = "nav-row active" if status == active_status else "nav-row"
+        parts.append(
+            f'<a class="{cls}" href="{url_for("status", status)}">{status_icon(status)}'
+            f'{html.escape(status)}<span class="n">{count}</span></a>')
     return "".join(parts)
+
+
+def issue_row(it, drag=False):
+    """One full-width list row: icons, id, title, updated date pinned right."""
+    attrs = (f' draggable="true" data-id="{html.escape(it["id"], quote=True)}"'
+             if drag else "")
+    date = (f'<span class="idate" title="updated">{html.escape(str(it["updated"]))}</span>'
+            if it.get("updated") else "")
+    return (
+        f'<a class="item"{attrs} href="{url_for("issue", it["id"])}">'
+        f'{GRIP if drag else ""}'
+        f'{status_icon(it["status"])}{priority_icon(it["priority"])}'
+        f'<span class="iid">{html.escape(it["id"])}</span>'
+        f'<span class="ititle">{html.escape(it["title"])}</span>{date}</a>'
+    )
+
+
+def render_status_page(status, live=True):
+    issues = [it for it in list_issues() if it["status"] == status]
+    head = (f'<div class="view-head"><h1>{status_icon(status)}{html.escape(status)}'
+            f'<span class="vcount">{len(issues)}</span></h1></div>')
+    if issues:
+        drag = live
+        data = f' data-status="{html.escape(status, quote=True)}"' if drag else ""
+        body = (f'<section class="list"{data}>'
+                + "".join(issue_row(it, drag=drag) for it in issues) + "</section>")
+    else:
+        body = '<p class="empty">No issues.</p>'
+    return page(f"{status} · {project_title()}", sidebar_html(status), head + body, live=live)
 
 
 def render_props(meta):
@@ -634,16 +704,10 @@ def render_props(meta):
 
 def render_active():
     issues = list_issues()
-    rows = []
-    for status in ("In Progress", "In Review"):
-        for it in (i for i in issues if i["status"] == status):
-            rows.append(
-                f'<a class="item" href="{url_for("issue", it["id"])}">'
-                f'{status_icon(it["status"])}{priority_icon(it["priority"])}'
-                f'<span class="iid">{html.escape(it["id"])}</span>'
-                f'<span class="ititle">{html.escape(it["title"])}</span></a>'
-            )
-    body = "".join(rows) if rows else '<p class="active-empty">Nothing in progress.</p>'
+    rows = [issue_row(it) for status in ("In Progress", "In Review")
+            for it in issues if it["status"] == status]
+    body = (f'<div class="list">{"".join(rows)}</div>' if rows
+            else '<p class="empty">Nothing in progress.</p>')
     return f'<section class="active"><div class="group-h">Active</div>{body}</section>'
 
 
@@ -679,7 +743,7 @@ def render_issue_page(p, meta, body, live=True):
         f'<span class="badge">{priority_icon(pri)}{html.escape(pri)}</span></div></div>'
     )
     main = '<article class="md issue">' + head + render_blocks(body) + "</article>"
-    return page(f"{iid} · {title}", sidebar_html(iid), main, props=render_props(meta), live=live)
+    return page(f"{iid} · {title}", sidebar_html(status), main, props=render_props(meta), live=live)
 
 
 # --------------------------------------------------------------------------- #
@@ -721,6 +785,8 @@ def apply_reorder(status, ids):
     today = time.strftime("%Y-%m-%d")
     for pos, iid in enumerate(ids, 1):
         p, meta, _ = find_issue(iid)
+        if str(meta.get("order", "")) == str(pos):
+            continue   # already in place — don't churn the file or its updated date
         _rewrite_meta(p, {"order": pos, "updated": today})
 
 
@@ -791,6 +857,8 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
     def do_GET(self):
+        if not self._local():
+            return self.send_error(403)
         path = urllib.parse.urlparse(self.path).path
         if path == "/events":
             return self._sse()
@@ -800,6 +868,11 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/":
             return self._html(render_project_page())
+        m = re.match(r"^/status/([a-z0-9-]+)$", path)
+        if m:
+            status = {slug(s): s for s in STATUS_ORDER}.get(m.group(1))
+            if status:
+                return self._html(render_status_page(status))
         m = re.match(r"^/issue/(.+)$", path)
         if m:
             res = find_issue(urllib.parse.unquote(m.group(1)))
@@ -807,10 +880,27 @@ class Handler(BaseHTTPRequestHandler):
                 return self._html(render_issue_page(*res))
         self.send_error(404)
 
+    def _local(self):
+        """Only the user's own browser tab may talk to us: a foreign Host means DNS
+        rebinding; a foreign Origin (or a CORS-safelisted Content-Type on POST) means
+        some other website is poking our write endpoints."""
+        host = (self.headers.get("Host") or "").rsplit(":", 1)[0]
+        if host not in ("localhost", "127.0.0.1", "[::1]", ""):
+            return False
+        origin = self.headers.get("Origin")
+        if origin:
+            o = urllib.parse.urlparse(origin)
+            if o.hostname not in ("localhost", "127.0.0.1", "::1"):
+                return False
+        return True
+
     def do_POST(self):
         path = urllib.parse.urlparse(self.path).path
         if path not in ("/reorder", "/status"):
             return self.send_error(404)
+        ctype = (self.headers.get("Content-Type") or "").split(";")[0].strip()
+        if not self._local() or ctype != "application/json":
+            return self.send_error(403)
         try:
             n = int(self.headers.get("Content-Length") or 0)
             payload = json.loads(self.rfile.read(n))
@@ -866,14 +956,21 @@ def build(outdir):
     out = Path(outdir)
     out.mkdir(parents=True, exist_ok=True)
     (out / "index.html").write_text(render_project_page(live=False), encoding="utf-8")
+    issues = list_issues()
+    views = 0
+    for status in STATUS_ORDER:
+        if any(it["status"] == status for it in issues) or status in ALWAYS_SHOW:
+            (out / f"status-{slug(status)}.html").write_text(
+                render_status_page(status, live=False), encoding="utf-8")
+            views += 1
     count = 0
-    for it in list_issues():
+    for it in issues:
         res = find_issue(it["id"])
         if res:
             (out / f"{it['id']}.html").write_text(
                 render_issue_page(*res, live=False), encoding="utf-8")
             count += 1
-    print(f"built static site → {out}/  (index.html + {count} issues)")
+    print(f"built static site → {out}/  (index.html + {views} views + {count} issues)")
 
 
 SLATE_BEGIN = "<!-- slate:begin -->"

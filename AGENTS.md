@@ -2,9 +2,9 @@
 
 slate is a task tracker kept in plain markdown — a project file and one file per
 issue, rendered by a web viewer. The markdown is the source of truth. You maintain
-the tracker by editing the files; the viewer's only writes are drag-to-reorder in
-the sidebar (rewrites `order`) and the status chip on an issue page (rewrites
-`status`).
+the tracker by editing the files; the viewer's only writes are drag-to-reorder
+within a status view (rewrites `order`) and the status chip on an issue page
+(rewrites `status`).
 
 ## Where things are
 
@@ -49,8 +49,8 @@ What this is and why it matters. Link issues with [[T-2]] wikilinks.
 ```
 
 - `id` must equal the filename stem. `issues/T-1.md` has `id: T-1`.
-- `status`: Backlog, Todo, In Progress, In Review, Done, Canceled. Drives the sidebar
-  grouping and counts.
+- `status`: Backlog, Todo, In Progress, In Review, Done, Canceled. Drives which
+  status view an issue appears in and the sidebar counts.
 - `priority`: Urgent, High, Medium, Low, No priority.
 - `order` (optional): integer position within the status group, lowest first. Issues
   without it sort by id after the ordered ones. Usually set by dragging in the
