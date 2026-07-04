@@ -766,9 +766,8 @@ def render_issue_page(p, meta, body, live=True):
     hit = agent_presence()["issues"].get(iid)
     live_badge = ""
     if hit:
-        doing = f" — {html.escape(hit['tool'])}" if hit["tool"] else ""
         live_badge = (f'<span class="badge live"><span class="pulse"></span>'
-                      f'agent working{doing} · {_age_label(hit["age"])}</span>')
+                      f'agent working · {_age_label(hit["age"])}</span>')
     head = (
         f'<div class="issue-head"><div class="crumb">{html.escape(iid)}</div>'
         f"<h1>{html.escape(title)}</h1>"
@@ -820,29 +819,6 @@ def _tail(path, n=_TAIL_BYTES):
         return f.read().decode("utf-8", "ignore")
 
 
-def _last_tool(text):
-    """Most recent tool call in a transcript tail, as 'Name primary-arg'."""
-    for line in reversed(text.split("\n")):
-        if '"tool_use"' not in line:
-            continue
-        try:
-            evt = json.loads(line)
-        except ValueError:
-            continue
-        content = (evt.get("message") or {}).get("content")
-        if not isinstance(content, list):
-            continue
-        for block in reversed(content):
-            if isinstance(block, dict) and block.get("type") == "tool_use":
-                inp = block.get("input") if isinstance(block.get("input"), dict) else {}
-                arg = str(inp.get("file_path") or inp.get("command")
-                          or inp.get("pattern") or "").split("\n")[0]
-                if len(arg) > 48:
-                    arg = arg[:45] + "…"
-                return f'{block.get("name", "")} {arg}'.strip()
-    return ""
-
-
 def _touched_issues(text, id_pat):
     """Issue ids a session is actually acting on — its markdown file (issues/<ID>.md)
     is the target of a tool call — not ids merely mentioned in passing (grep output,
@@ -884,7 +860,7 @@ def _session_id(path, base):
 
 
 def agent_presence():
-    """{'sessions': n, 'workers': m, 'issues': {id: {'age': s, 'tool': str}}} — cached ~1s.
+    """{'sessions': n, 'workers': m, 'issues': {id: {'age': s}}} — cached ~1s.
     A session may fan out into workflow subagents; each fresh transcript is one
     worker, and workers collapse to their parent session for the session count."""
     if MODE != "live":
@@ -917,11 +893,10 @@ def agent_presence():
                     continue                 # slug collision: another project's session
                 out["workers"] += 1
                 sessions.add(_session_id(f, d))
-                tool = _last_tool(text)
                 for iid in _touched_issues(text, pat) if pat else ():
                     cur = out["issues"].get(iid)
                     if cur is None or age < cur["age"]:
-                        out["issues"][iid] = {"age": age, "tool": tool}
+                        out["issues"][iid] = {"age": age}
             out["sessions"] = len(sessions)
     except Exception:
         out = {"sessions": 0, "workers": 0, "issues": {}}
