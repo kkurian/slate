@@ -9,6 +9,10 @@ affected issues, and picking a state from an issue's status chip rewrites its
 is still readable in any editor or on GitHub. Python 3 standard library only —
 no pip, no npm, no build step.
 
+The live server also shows agent presence: it watches Claude Code's session
+transcripts (~/.claude/projects/<slug>/*.jsonl, override with SLATE_TRANSCRIPTS)
+and marks issues an active agent has touched. Display-only, never written back.
+
 Usage:
     python3 slate.py            # live server at http://localhost:8787
     python3 slate.py serve      # same
@@ -351,6 +355,7 @@ a{color:var(--ink);text-decoration:none}
 .ititle{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#c4c6cc}
 .idate{margin-left:auto;flex:none;padding-left:14px;color:var(--faint);font-size:12.5px;
   font-variant-numeric:tabular-nums}
+.idate .k{opacity:.7}
 .content{padding:42px 60px;max-width:860px;display:flex;flex-direction:column}
 .view-head h1{display:flex;align-items:center;gap:9px;margin:0 0 18px;
   font-size:18px;font-weight:600;letter-spacing:-.01em}
@@ -359,6 +364,12 @@ a{color:var(--ink);text-decoration:none}
 section.active{margin:6px 0 10px}
 section.active .group-h{padding-left:0}
 .empty{margin:2px 0;font-size:13px;color:var(--faint)}
+.pulse{width:8px;height:8px;border-radius:50%;background:#4cb782;flex:none;
+  animation:pulse 2s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+.agents-live{display:flex;align-items:center;gap:8px;padding:6px 8px;margin-top:12px;
+  font-size:12px;color:var(--mut)}
+.badge.live{border-color:rgba(76,183,130,.35)}
 @media (max-width:700px){
   .content{padding:32px 22px}
   .idate{display:none}
@@ -546,7 +557,12 @@ SSE_SCRIPT = """<script>
 
   try{
     var es = new EventSource('/events');
-    es.onmessage = function(){ load(location.pathname, true); };   // live reload, snappy + keeps scroll
+    es.onmessage = function(){
+      // Never yank the DOM out from under an in-progress drag or an open menu;
+      // the next presence heartbeat (≤15s) or file change re-syncs afterwards.
+      if(dragEl || document.querySelector('details.badge-menu[open]')) return;
+      load(location.pathname, true);                               // live reload, keeps scroll
+    };
     // Editing slate.py re-execs the server, dropping this stream. EventSource
     // retries on its own; reload on the reconnect so new CSS/markup applies.
     var lost = false;
@@ -646,6 +662,10 @@ def sidebar_html(active_status=None):
         parts.append(
             f'<a class="{cls}" href="{url_for("status", status)}">{status_icon(status)}'
             f'{html.escape(status)}<span class="n">{count}</span></a>')
+    n = agent_presence()["sessions"]
+    if n:
+        label = "1 agent active" if n == 1 else f"{n} agents active"
+        parts.append(f'<div class="agents-live"><span class="pulse"></span>{label}</div>')
     return "".join(parts)
 
 
@@ -653,14 +673,18 @@ def issue_row(it, drag=False):
     """One full-width list row: icons, id, title, updated date pinned right."""
     attrs = (f' draggable="true" data-id="{html.escape(it["id"], quote=True)}"'
              if drag else "")
-    date = (f'<span class="idate" title="updated">{html.escape(str(it["updated"]))}</span>'
+    date = (f'<span class="idate" title="last updated"><span class="k">updated</span> '
+            f'{html.escape(str(it["updated"]))}</span>'
             if it.get("updated") else "")
+    hit = agent_presence()["issues"].get(it["id"])
+    dot = (f'<span class="pulse" title="agent active · {_age_label(hit["age"])}"></span>'
+           if hit else "")
     return (
         f'<a class="item"{attrs} href="{url_for("issue", it["id"])}">'
         f'{GRIP if drag else ""}'
         f'{status_icon(it["status"])}{priority_icon(it["priority"])}'
         f'<span class="iid">{html.escape(it["id"])}</span>'
-        f'<span class="ititle">{html.escape(it["title"])}</span>{date}</a>'
+        f'<span class="ititle">{html.escape(it["title"])}</span>{dot}{date}</a>'
     )
 
 
@@ -736,14 +760,129 @@ def render_issue_page(p, meta, body, live=True):
             f'<div class="menu">{opts}</div></details>')
     else:
         status_badge = f'<span class="badge">{status_icon(status)}{html.escape(status)}</span>'
+    hit = agent_presence()["issues"].get(iid)
+    live_badge = ""
+    if hit:
+        doing = f" — {html.escape(hit['tool'])}" if hit["tool"] else ""
+        live_badge = (f'<span class="badge live"><span class="pulse"></span>'
+                      f'agent working{doing} · {_age_label(hit["age"])}</span>')
     head = (
         f'<div class="issue-head"><div class="crumb">{html.escape(iid)}</div>'
         f"<h1>{html.escape(title)}</h1>"
         f'<div class="badges">{status_badge}'
-        f'<span class="badge">{priority_icon(pri)}{html.escape(pri)}</span></div></div>'
+        f'<span class="badge">{priority_icon(pri)}{html.escape(pri)}</span>'
+        f'{live_badge}</div></div>'
     )
     main = '<article class="md issue">' + head + render_blocks(body) + "</article>"
     return page(f"{iid} · {title}", sidebar_html(status), main, props=render_props(meta), live=live)
+
+
+# --------------------------------------------------------------------------- #
+# Agent presence (read-only) — which issues have an agent on them, right now
+# --------------------------------------------------------------------------- #
+# Claude Code appends each session's transcript to ~/.claude/projects/<slug>/*.jsonl.
+# A fresh mtime means an agent is live; the transcript tail names the issues it
+# touched and the last tool it ran. Presence is ephemeral display state — never
+# written to the markdown, absent from static builds, fail-soft if transcripts
+# move or the format changes (no transcripts → no indicators, nothing else breaks).
+
+AGENT_FRESH = 90       # seconds of transcript silence before an agent is "gone"
+_TAIL_BYTES = 65536
+_PRESENCE = {"at": 0.0, "val": None}
+
+
+def _transcript_dirs():
+    """[(dir, cwd_guards)] to scan. The slug mapping is lossy (foo.bar and foo-bar
+    collide), so auto-discovered dirs carry guards: a transcript only counts if its
+    events' cwd sits under one of our roots. An explicit SLATE_TRANSCRIPTS is trusted."""
+    env = os.environ.get("SLATE_TRANSCRIPTS")
+    if env:
+        d = Path(env)
+        return [(d, None)] if d.is_dir() else []
+    base = Path(os.environ.get("CLAUDE_CONFIG_DIR") or (Path.home() / ".claude")) / "projects"
+    roots = {ROOT, _git_root(ROOT) or ROOT}
+    guards = tuple(f'"cwd":{sp}"{r}' for r in roots for sp in ("", " "))
+    dirs = []
+    for root in roots:
+        d = base / re.sub(r"[^A-Za-z0-9-]", "-", str(root))
+        if d.is_dir():
+            dirs.append((d, guards))
+    return dirs
+
+
+def _tail(path, n=_TAIL_BYTES):
+    with open(path, "rb") as f:
+        f.seek(0, 2)
+        f.seek(max(0, f.tell() - n))
+        return f.read().decode("utf-8", "ignore")
+
+
+def _last_tool(text):
+    """Most recent tool call in a transcript tail, as 'Name primary-arg'."""
+    for line in reversed(text.split("\n")):
+        if '"tool_use"' not in line:
+            continue
+        try:
+            evt = json.loads(line)
+        except ValueError:
+            continue
+        content = (evt.get("message") or {}).get("content")
+        if not isinstance(content, list):
+            continue
+        for block in reversed(content):
+            if isinstance(block, dict) and block.get("type") == "tool_use":
+                inp = block.get("input") if isinstance(block.get("input"), dict) else {}
+                arg = str(inp.get("file_path") or inp.get("command")
+                          or inp.get("pattern") or "").split("\n")[0]
+                if len(arg) > 48:
+                    arg = arg[:45] + "…"
+                return f'{block.get("name", "")} {arg}'.strip()
+    return ""
+
+
+def agent_presence():
+    """{'sessions': n, 'issues': {id: {'age': s, 'tool': str}}} — cached ~1s."""
+    if MODE != "live":
+        return {"sessions": 0, "issues": {}}
+    now = time.time()
+    if _PRESENCE["val"] is not None and now - _PRESENCE["at"] < 1.0:
+        return _PRESENCE["val"]
+    out = {"sessions": 0, "issues": {}}
+    try:
+        fresh = []
+        for d, guards in _transcript_dirs():
+            for f in d.glob("*.jsonl"):
+                if not f.is_file():          # a dir or FIFO named *.jsonl must not wedge us
+                    continue
+                try:
+                    age = int(now - f.stat().st_mtime)
+                except OSError:
+                    continue
+                if age <= AGENT_FRESH:
+                    fresh.append((age, f, guards))
+        if fresh:                            # only touch the tracker when someone is live
+            ids = [it["id"] for it in list_issues()]
+            pat = (re.compile(r"(?<![\w-])(" + "|".join(
+                       re.escape(i) for i in sorted(ids, key=len, reverse=True))
+                   + r")(?![\w-])") if ids else None)
+            for age, f, guards in sorted(fresh, key=lambda t: t[0]):
+                text = _tail(f)
+                if guards and not any(g in text for g in guards):
+                    continue                 # slug collision: another project's session
+                out["sessions"] += 1
+                tool = _last_tool(text)
+                for iid in set(pat.findall(text)) if pat else ():
+                    cur = out["issues"].get(iid)
+                    if cur is None or age < cur["age"]:
+                        out["issues"][iid] = {"age": age, "tool": tool}
+    except Exception:
+        out = {"sessions": 0, "issues": {}}
+    _PRESENCE["at"], _PRESENCE["val"] = now, out
+    return out
+
+
+def _age_label(s):
+    return f"{s}s ago" if s < 60 else f"{s // 60}m ago"
 
 
 # --------------------------------------------------------------------------- #
@@ -834,7 +973,7 @@ def _restart():
 
 
 def watch():
-    mtimes, init = {}, False
+    mtimes, init, tick, agents_key, agents_beat = {}, False, 0, None, 0.0
     while True:
         snap = {}
         for p in [SELF] + _watched_files():
@@ -849,6 +988,22 @@ def watch():
             STATE["changed"] = changed[0] if changed else ""
             STATE["version"] += 1
         mtimes, init = snap, True
+        tick += 1
+        if tick % 4 == 0:
+            # Agent presence. Re-render on material change (who is live, which issues),
+            # NOT on every tool call — that would swap the layout every couple of
+            # seconds while an agent works. A 15s heartbeat while agents are active
+            # keeps the age labels and tool lines from freezing on screen.
+            pres = agent_presence()
+            key = (pres["sessions"], tuple(sorted(pres["issues"])))
+            now = time.time()
+            material = agents_key is not None and key != agents_key
+            heartbeat = pres["sessions"] and now - agents_beat > 15
+            if material or heartbeat:
+                STATE["changed"] = "agents"
+                STATE["version"] += 1
+                agents_beat = now
+            agents_key = key
         time.sleep(0.5)
 
 

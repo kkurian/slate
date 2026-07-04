@@ -57,6 +57,8 @@ The live server renders `project.md` as the overview, a list view per status, an
 
 That includes `slate.py` itself: edit the viewer and the server re-execs in place, and open pages reload when it comes back — styles and markup included. If the edit has a syntax error, the old server keeps running and waits for a fix.
 
+The live server also shows **agent presence**. It watches Claude Code's session transcripts (`~/.claude/projects/<project-slug>/*.jsonl`; override the location with `SLATE_TRANSCRIPTS`): a session that has written in the last 90 seconds counts as a live agent, issues it mentions get a pulsing dot, the issue page shows the agent's last tool call, and the sidebar shows how many agents are active. This is presence, not state — like a cursor in a shared doc. It is never written to the markdown, and if no transcripts exist the viewer looks exactly as before. It is also inferred from raw transcript text: a session that merely lists the board mentions every issue, so treat the dots as a hint, not an audit log.
+
 The sidebar is navigation: one row per status with a count. Open a status to see its issues as full-width rows, and drag a row within that view to reorder it (Esc cancels) — or click the status chip on an issue page to move it to another state. These are the viewer's only write paths: they rewrite the `order:` / `status:` frontmatter of the affected issues, so the markdown stays the source of truth. Static builds get neither. Drag the sidebar's edge to resize it.
 
 `build` emits self-contained HTML you can open without the server, or hand to someone who has no runtime at all.
