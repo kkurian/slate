@@ -321,7 +321,7 @@ a{color:var(--ink);text-decoration:none}
 .group-h{display:flex;align-items:center;gap:8px;padding:5px 8px;font-size:12px;font-weight:600;color:var(--mut);cursor:pointer;list-style:none}
 .group-h::-webkit-details-marker{display:none}
 .group-h .n{margin-left:auto;color:var(--faint);font-weight:500}
-.item{display:flex;align-items:center;gap:9px;padding:6px 8px;border-radius:6px;color:var(--ink);font-size:13px}
+.item{display:flex;align-items:center;gap:9px;padding:4px 8px;border-radius:6px;color:var(--ink);font-size:13px;line-height:1.5}
 .item:hover{background:var(--hover)}
 .item.active{background:var(--active)}
 .item.dragging{opacity:.45}
