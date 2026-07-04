@@ -4,15 +4,39 @@
   <sub>task tracking for AI and their humans</sub>
 </h1>
 
+<p align="center">
+  <strong>Know what your agents are doing. Let them pick up where they left off.</strong>
+</p>
+
+Agents do more of the work now — but the work itself goes invisible: plans buried in chat scrollback, state that dies with the context window. slate makes the work durable and visible. Your agents track it the one way they natively can — markdown files in your repo — and you watch it on a live board, down to which issue an agent is touching this second.
+
+<p align="center">
+  <img src="docs/screenshot.png" alt="slate rendering a task board: a status navigation sidebar with counts and a full-width issue list in a dark, Linear-style interface" width="820">
+</p>
+
+You already know the symptoms:
+
+- Your agent makes a plan, the session ends, and the plan is gone.
+- You run long or parallel sessions and can't tell what's in flight without reading transcripts.
+- You pointed the agent at a legacy task tracker and watched it burn context on API calls — or quietly stop updating the board.
+
+One command fixes all three. From your repository root:
+
+```sh
+bash <(curl -fsSL https://raw.githubusercontent.com/bioneural/slate/main/install.sh)
+```
+
+That's the whole setup: slate lands in `tasks/`, your agent is told to track its work there, and `python3 tasks/slate.py` serves the board. No account, no database, no API — nothing for the agent to integrate with, and nothing for you to host. Delete the viewer and your tracker is still there, because the tracker is the markdown.
+
+---
+
+## Why markdown-first
+
 Humans and AIs build software together. Both must track the work. This is where they part: a human reads a project through arrangement — position, grouping, the whole grasped at once. An AI perceives no arrangement. It works in text — parsing, emitting — and visual layout gives it nothing. Worse, layout is not free: rendered markup is noise the agent must still read, and that reading spends context the work itself should hold. Dressing data for an eye the agent does not have is pure waste. I do not tolerate waste.
 
 slate inverts the usual priorities of a task tracker. Most are built for the eye: the work sits in a database behind a visual interface; the machine reaches it through an API, second-class. slate makes the markdown primary — one file per issue, exactly what an agent reads and writes unassisted. The board is rendered from those files, for you. The view serves the human; the source serves the agent. Neither reader is an afterthought.
 
 The markdown is the system of record. The viewer is one Python file, standard library only, and disposable. Delete it; nothing is lost.
-
-<p align="center">
-  <img src="docs/screenshot.png" alt="slate rendering a task board: a status navigation sidebar with counts and a full-width issue list in a dark, Linear-style interface" width="820">
-</p>
 
 ---
 
