@@ -77,42 +77,54 @@ The markdown is the system of record. The viewer is one Python file, standard li
 
 ---
 
-## Install notes
+## What the installer does
 
-The installer copies slate into `tasks/` (pass a different directory as the argument) and writes a starter `project.md`. Re-run any time to update; your `project.md`, your issues, and your existing agent instructions are left untouched.
-
-It also writes a managed block into your repository's **root** agent-instructions file — `CLAUDE.md`, `AGENTS.md`, or both, defaulting to `CLAUDE.md`:
+One command from the repo root leaves you with this:
 
 ```
-<!-- slate:begin -->
-## Task tracking (slate)
-...
-@tasks/AGENTS.md
-<!-- slate:end -->
+your-repo/
+├── CLAUDE.md          ← managed block appended (or AGENTS.md — whichever you use)
+└── tasks/             ← or any directory you pass as the argument
+    ├── project.md     ← starter overview; yours from here on, never overwritten
+    ├── issues/        ← one markdown file per issue
+    ├── templates/
+    │   └── issue.md   ← copy to create an issue
+    ├── AGENTS.md      ← the tracker conventions the agent loads
+    └── slate.py       ← the viewer
 ```
 
-The root file is the one an agent loads no matter where in the repo it works, so this block is what makes every session aware of the tracker. `CLAUDE.md` gets an `@`-import, which Claude Code loads every session; `AGENTS.md` gets a path reference, since it has no import mechanism. Run this step alone with `python3 tasks/slate.py install`.
+- **Re-run any time to update slate.** Your `project.md`, your issues, and your existing agent instructions are never touched.
+- **The managed block is what makes the agent show up.** It goes in the **root** instructions file because that's the one an agent loads no matter where in the repo it works:
+
+  ```
+  <!-- slate:begin -->
+  ## Task tracking (slate)
+  ...
+  @tasks/AGENTS.md
+  <!-- slate:end -->
+  ```
+
+  `CLAUDE.md` gets an `@`-import, which Claude Code loads every session; `AGENTS.md` gets a path reference, since it has no import mechanism. Re-run just this step with `python3 tasks/slate.py install`.
 
 ---
 
 ## The viewer
 
 ```sh
-python3 slate.py            # live server at http://localhost:8787
-python3 slate.py build out  # write standalone HTML into ./out/
+python3 slate.py            # live board at http://localhost:8787
+python3 slate.py build out  # standalone HTML in ./out/ — no server needed, no write paths
 ```
 
-The live server renders `project.md` as the overview, a list view per status, and each `issues/*.md` as an issue. Navigation is instant; file changes appear in place with scroll held. That includes `slate.py` itself: edit the viewer and it re-execs in place — and if the edit has a syntax error, the old server keeps running until you fix it.
-
-**Agent presence** comes from Claude Code's transcripts (`~/.claude/projects/<project-slug>/`, recursing into workflow subagents; override with `SLATE_TRANSCRIPTS`). A transcript written in the last 90 seconds is a live agent; the sidebar counts active agents (and workers, when a workflow fans out), an issue gets a pulsing dot while its file is the target of a tool call, and its page shows an "agent working" badge. Presence is ephemeral display state — never written to the markdown, absent from static builds, and a heuristic hint, not an audit log.
-
-Drag a row within a status view to reorder it (Esc cancels), or click the status chip on an issue page to move it — the viewer's only write paths. `build` emits self-contained HTML that needs no server and gets neither write path. Set `SLATE_PORT` to change the port; drag the sidebar's edge to resize it.
+- **Live, everywhere.** `project.md` is the overview, each status a view, each issue a page. Navigation swaps in place; a file edited on disk updates the open page and holds your scroll. Even `slate.py` reloads itself: edit it and the server re-execs — a syntax error leaves the old server running until you fix it.
+- **Agent presence.** The viewer watches Claude Code's transcripts (`~/.claude/projects/<project-slug>/`, workflow subagents included; override with `SLATE_TRANSCRIPTS`). A transcript written in the last 90 seconds is a live agent: the sidebar counts agents — and workers, when a workflow fans out — an issue pulses while its file is the target of a tool call, and its page shows an "agent working" badge. Presence is ephemeral: never written to the markdown, absent from static builds, a hint rather than an audit log.
+- **Two write paths, no more.** Drag a row within a status view to reorder it (Esc cancels), or click the status chip on an issue page to move it. Each rewrites only the `order:` / `status:` frontmatter of the issues involved.
+- **Knobs.** `SLATE_PORT` sets the port; drag the sidebar's edge to resize it.
 
 ---
 
 ## Format
 
-A project file and one file per issue. Both are markdown with YAML frontmatter.
+A project file and one file per issue — markdown with YAML frontmatter. Copy `templates/issue.md` to `issues/<ID>.md` and it's on the board, no rebuild.
 
 ```markdown
 ---
@@ -131,21 +143,22 @@ What this is and why it matters. Link issues with [[T-2]] wikilinks.
 - [ ] A concrete, checkable outcome
 ```
 
-- `status`: Backlog, Todo, In Progress, In Review, Done, Canceled — drives the status views and sidebar counts.
-- `priority`: Urgent, High, Medium, Low, No priority — drives the priority marks.
-- `order` (optional): integer position within the status group, lowest first; set by dragging, or by hand.
-- Link issues with `[[T-2]]` wikilinks.
+| field | values | drives |
+|---|---|---|
+| `status` | Backlog · Todo · In Progress · In Review · Done · Canceled | which view the issue is in, sidebar counts |
+| `priority` | Urgent · High · Medium · Low · No priority | the priority marks |
+| `order` | integer, optional | position within the status — set by dragging, or by hand |
 
-Copy `templates/issue.md` to `issues/<ID>.md` to create an issue; it appears on the board with no rebuild. The sidebar brand shows the `title` from your `project.md`, so slate reads as native to the project it sits in.
+Link issues with `[[T-2]]` wikilinks. The sidebar brand shows the `title` from your `project.md`, so slate reads as native to the project it sits in.
 
 ---
 
 ## Design
 
-- The markdown is the source of truth. The viewer is disposable.
-- Nearly read-only by construction. The server's only writes are the `order` and `status` frontmatter fields; it cannot alter the tracker beyond that.
-- One renderer, two outputs. The live server and the static build share the same rendering, so they cannot drift.
-- Zero dependencies. Standard library only.
+- **The markdown is the source of truth.** The viewer is disposable.
+- **Nearly read-only by construction.** The server's only writes are the `order` and `status` frontmatter fields; it cannot alter the tracker beyond that.
+- **One renderer, two outputs.** The live server and the static build share the same rendering, so they cannot drift.
+- **Zero dependencies.** Python standard library only.
 
 The viewer renders a focused subset of markdown — headings, lists, task checkboxes, tables, code, blockquotes, links, and wikilinks — enough for issues.
 
