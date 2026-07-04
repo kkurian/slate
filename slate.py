@@ -508,9 +508,9 @@ def priority_icon(pri):
     return _svg("".join(bars))
 
 
-FOOTER = ('<footer class="foot">Powered by '
-          '<a href="https://github.com/bioneural/slate">slate</a> by '
-          '<a href="https://bioneural.com/about/">bioneural</a></footer>')
+FOOTER = ('<footer class="foot">rendered by '
+          '<a href="https://github.com/bioneural/slate">slate</a>. built by '
+          '<a href="https://bioneural.com/about/">bioneural</a>.</footer>')
 
 
 def page(title, sidebar, main, props="", live=True):
