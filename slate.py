@@ -662,9 +662,12 @@ def sidebar_html(active_status=None):
         parts.append(
             f'<a class="{cls}" href="{url_for("status", status)}">{status_icon(status)}'
             f'{html.escape(status)}<span class="n">{count}</span></a>')
-    n = agent_presence()["sessions"]
+    pres = agent_presence()
+    n, workers = pres["sessions"], pres["workers"]
     if n:
         label = "1 agent active" if n == 1 else f"{n} agents active"
+        if workers > n:                      # a workflow fanned out — say how wide
+            label += f' · {workers} workers'
         parts.append(f'<div class="agents-live"><span class="pulse"></span>{label}</div>')
     return "".join(parts)
 
@@ -840,18 +843,32 @@ def _last_tool(text):
     return ""
 
 
+def _session_id(path, base):
+    """Collapse a transcript path to its owning session. A plain session writes
+    <slug>/<uuid>.jsonl; a workflow writes its subagents to
+    <slug>/<uuid>/subagents/workflows/<wf>/agent-*.jsonl. Both belong to session
+    <uuid>, so the first path component under base is the key (minus any .jsonl)."""
+    try:
+        first = path.relative_to(base).parts[0]
+    except (ValueError, IndexError):
+        return str(path)
+    return first[:-6] if first.endswith(".jsonl") else first
+
+
 def agent_presence():
-    """{'sessions': n, 'issues': {id: {'age': s, 'tool': str}}} — cached ~1s."""
+    """{'sessions': n, 'workers': m, 'issues': {id: {'age': s, 'tool': str}}} — cached ~1s.
+    A session may fan out into workflow subagents; each fresh transcript is one
+    worker, and workers collapse to their parent session for the session count."""
     if MODE != "live":
-        return {"sessions": 0, "issues": {}}
+        return {"sessions": 0, "workers": 0, "issues": {}}
     now = time.time()
     if _PRESENCE["val"] is not None and now - _PRESENCE["at"] < 1.0:
         return _PRESENCE["val"]
-    out = {"sessions": 0, "issues": {}}
+    out = {"sessions": 0, "workers": 0, "issues": {}}
     try:
         fresh = []
         for d, guards in _transcript_dirs():
-            for f in d.glob("*.jsonl"):
+            for f in d.rglob("*.jsonl"):     # recurse: workflow subagents nest under <session>/
                 if not f.is_file():          # a dir or FIFO named *.jsonl must not wedge us
                     continue
                 try:
@@ -859,24 +876,27 @@ def agent_presence():
                 except OSError:
                     continue
                 if age <= AGENT_FRESH:
-                    fresh.append((age, f, guards))
+                    fresh.append((age, f, d, guards))
         if fresh:                            # only touch the tracker when someone is live
             ids = [it["id"] for it in list_issues()]
             pat = (re.compile(r"(?<![\w-])(" + "|".join(
                        re.escape(i) for i in sorted(ids, key=len, reverse=True))
                    + r")(?![\w-])") if ids else None)
-            for age, f, guards in sorted(fresh, key=lambda t: t[0]):
+            sessions = set()
+            for age, f, d, guards in sorted(fresh, key=lambda t: t[0]):
                 text = _tail(f)
                 if guards and not any(g in text for g in guards):
                     continue                 # slug collision: another project's session
-                out["sessions"] += 1
+                out["workers"] += 1
+                sessions.add(_session_id(f, d))
                 tool = _last_tool(text)
                 for iid in set(pat.findall(text)) if pat else ():
                     cur = out["issues"].get(iid)
                     if cur is None or age < cur["age"]:
                         out["issues"][iid] = {"age": age, "tool": tool}
+            out["sessions"] = len(sessions)
     except Exception:
-        out = {"sessions": 0, "issues": {}}
+        out = {"sessions": 0, "workers": 0, "issues": {}}
     _PRESENCE["at"], _PRESENCE["val"] = now, out
     return out
 
