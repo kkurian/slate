@@ -408,7 +408,7 @@ SSE_SCRIPT = """<script>
   // Drag-to-reorder within a sidebar status group. The drop POSTs the group's new
   // id sequence to /reorder; the server renumbers `order:` in the issue files and
   // the SSE reload below re-renders everything from the markdown.
-  var dragEl = null, dragIds = '';
+  var dragEl = null, dragIds = '', dragHome = null;
   function groupIds(group){
     return Array.prototype.map.call(
       group.querySelectorAll('.item[data-id]'), function(el){ return el.dataset.id; });
@@ -418,26 +418,37 @@ SSE_SCRIPT = """<script>
     if(!it) return;
     dragEl = it;
     dragIds = groupIds(it.closest('.group')).join(',');
+    dragHome = { parent: it.parentNode, next: it.nextSibling };   // for snap-back on cancel
     it.classList.add('dragging');
     e.dataTransfer.effectAllowed = 'move';
     try{ e.dataTransfer.setData('text/plain', it.dataset.id); }catch(_){}
   });
   document.addEventListener('dragover', function(e){
-    if(!dragEl) return;
-    var over = e.target.closest('.sidebar .item[data-id]');
-    if(!over || over === dragEl) return;
-    if(over.closest('.group') !== dragEl.closest('.group')) return;   // same status only
+    if(!dragEl || !e.target.closest) return;
+    // Accept the drop anywhere in the item's own group — including over the dragged
+    // row itself and the gaps. The row re-slots under the cursor while dragging, so
+    // release usually happens over it; an unaccepted target there would make WebKit
+    // play its fly-back animation (and read as a canceled drag). Outside the group
+    // stays unaccepted: dropping there cancels.
+    if(e.target.closest('.group') !== dragEl.closest('.group')) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
+    var over = e.target.closest('.sidebar .item[data-id]');
+    if(!over || over === dragEl) return;
     var r = over.getBoundingClientRect();
     over.parentNode.insertBefore(dragEl, e.clientY < r.top + r.height/2 ? over : over.nextSibling);
   });
   document.addEventListener('drop', function(e){ if(dragEl) e.preventDefault(); });
-  document.addEventListener('dragend', function(){
+  document.addEventListener('dragend', function(e){
     if(!dragEl) return;
-    var it = dragEl, group = it.closest('.group');
-    dragEl = null;
+    var it = dragEl, home = dragHome, group = it.closest('.group');
+    dragEl = null; dragHome = null;
     it.classList.remove('dragging');
+    // Esc or a drop outside any valid target cancels: snap back, save nothing.
+    if(e.dataTransfer && e.dataTransfer.dropEffect === 'none' && home){
+      home.parent.insertBefore(it, home.next);
+      return;
+    }
     if(!group) return;
     var ids = groupIds(group);
     if(ids.join(',') === dragIds) return;                             // nothing moved
