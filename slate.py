@@ -626,7 +626,7 @@ def priority_icon(pri):
 
 FOOTER = ('<footer class="foot">rendered by '
           '<a href="https://github.com/kkurian/slate">slate</a>. built by '
-          '<a href="https://bioneural.com/about/">bioneural</a>.</footer>')
+          '<a href="https://github.com/kkurian">kkurian</a>.</footer>')
 
 
 def page(title, sidebar, main, props="", live=True):
