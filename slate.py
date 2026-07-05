@@ -375,7 +375,9 @@ section.active .group-h{padding-left:0}
   .content{padding:32px 22px}
   .idate{display:none}
 }
-.foot{margin-top:auto;padding-top:40px;font-size:12px;color:var(--faint);text-align:center}
+.foot{position:sticky;bottom:0;margin-top:auto;padding:12px 0;
+  background:var(--bg);border-top:1px solid var(--line);
+  font-size:12px;color:var(--faint);text-align:center}
 .foot a{color:var(--mut)}
 .foot a:hover{color:var(--ink)}
 .props{background:var(--sidebar);border-left:1px solid var(--line);padding:28px 22px;
