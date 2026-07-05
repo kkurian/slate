@@ -331,7 +331,7 @@ a{color:var(--ink);text-decoration:none}
   background:linear-gradient(135deg,#7d87e0,#a64ce8)}
 .layout{display:grid;grid-template-columns:var(--sbw,220px) minmax(0,1fr) 244px;min-height:100vh}
 .layout.no-props{grid-template-columns:var(--sbw,220px) minmax(0,1fr)}
-.sidebar{background:var(--sidebar);border-right:1px solid var(--line);padding:14px 8px;
+.sidebar{background:var(--sidebar);border-right:1px solid var(--line);padding:14px 8px 52px;
   position:sticky;top:0;height:100vh;overflow:auto}
 .sash{position:fixed;top:0;bottom:0;left:calc(var(--sbw,220px) - 1px);width:5px;
   cursor:col-resize;z-index:30}
@@ -357,7 +357,7 @@ a{color:var(--ink);text-decoration:none}
 .idate{margin-left:auto;flex:none;padding-left:14px;color:var(--faint);font-size:12.5px;
   font-variant-numeric:tabular-nums}
 .idate .k{opacity:.7}
-.content{padding:42px 60px;max-width:860px;display:flex;flex-direction:column}
+.content{padding:42px 60px 64px;max-width:860px;display:flex;flex-direction:column}
 .view-head h1{display:flex;align-items:center;gap:9px;margin:0 0 18px;
   font-size:18px;font-weight:600;letter-spacing:-.01em}
 .view-head .vcount{color:var(--faint);font-weight:500;font-size:14px}
@@ -375,12 +375,12 @@ section.active .group-h{padding-left:0}
   .content{padding:32px 22px}
   .idate{display:none}
 }
-.foot{position:sticky;bottom:0;margin-top:auto;padding:12px 0;
+.foot{position:fixed;bottom:0;left:0;right:0;z-index:20;padding:10px 0;
   background:var(--bg);border-top:1px solid var(--line);
   font-size:12px;color:var(--faint);text-align:center}
 .foot a{color:var(--mut)}
 .foot a:hover{color:var(--ink)}
-.props{background:var(--sidebar);border-left:1px solid var(--line);padding:28px 22px;
+.props{background:var(--sidebar);border-left:1px solid var(--line);padding:28px 22px 52px;
   position:sticky;top:0;height:100vh;overflow:auto}
 .props h3{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--mut);margin:0 0 14px;font-weight:600}
 .props-dl{display:grid;grid-template-columns:82px 1fr;gap:12px;margin:0;font-size:13px;align-items:center}
@@ -640,8 +640,8 @@ def page(title, sidebar, main, props="", live=True):
         '<meta name=viewport content="width=device-width,initial-scale=1">'
         f"<title>{html.escape(title)}</title><style>{CSS}</style></head><body>"
         f'<div class="{cls}"><aside class="sidebar">{sidebar}</aside>'
-        f'<main class="content">{main}{FOOTER}</main>{props_html}{sash}</div>'
-        f"{SSE_SCRIPT if live else ''}</body></html>"
+        f'<main class="content">{main}</main>{props_html}{sash}</div>'
+        f"{FOOTER}{SSE_SCRIPT if live else ''}</body></html>"
     )
 
 
