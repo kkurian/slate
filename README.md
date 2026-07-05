@@ -24,15 +24,12 @@ You already know the symptoms:
 
 ## How it works
 
-```mermaid
-flowchart LR
-    agent["Claude Code<br/>sessions"]
-    files["tasks/issues/*.md<br/>markdown — the source of truth"]
-    board["the board in your browser<br/>localhost:8787"]
-    agent <-->|"reads & writes"| files
-    files -->|"slate.py renders, live"| board
-    board -->|"drag to reorder · status chip<br/>the viewer's only writes"| files
-```
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/how-it-works-dark.png">
+    <img src="docs/how-it-works-light.png" alt="Claude Code sessions read and write tasks/issues/*.md — markdown, the source of truth. slate.py renders the files into a live board in your browser; the board's only writes back are reorder and restatus." width="820">
+  </picture>
+</p>
 
 - **Claude Code works the files directly.** No API, no MCP server, no credentials — the installer puts a managed block in your root `CLAUDE.md`/`AGENTS.md` that teaches it the conventions, and from then on it files, updates, and closes issues as it works.
 - **`slate.py` renders the files into a live board.** Any change on disk appears in place, scroll held. One Python file, stdlib only, disposable — the tracker is the markdown.
