@@ -1,24 +1,24 @@
 <h1 align="center">
   s l a t e
   <br>
-  <sub>task tracking for AI and their humans</sub>
+  <sub>long-horizon project tracking for agents and their humans</sub>
 </h1>
 
 <p align="center">
-  <strong>Know what your agents are doing. Let them pick up where they left off.</strong>
+  <strong>Agents can run whole projects now. slate is where the project lives — and how you watch it move.</strong>
 </p>
 
-Agents do more of the work now — but the work itself goes invisible: plans buried in chat scrollback, state that dies with the context window. slate makes the work durable and visible. Claude Code tracks it the one way agents natively can — markdown files in your repo — and you watch a live board, down to which issue an agent is touching this second.
+A project outlives every context window. The plan, the open threads, what shipped, what's next — that state needs a home every session can reach, or the project starts over each morning. slate gives it one: markdown files in your repo, the one medium agents read and write natively. Claude Code plans into them, works from them, and closes them out across as many sessions as the project takes; you watch a live board, down to which issue an agent is touching this second.
 
 <p align="center">
   <img src="docs/screenshot.png" alt="the slate board mid-flight: a sidebar with status counts and '2 agents active · 5 workers', and an In Progress list with pulsing dots on the issues agents are touching right now" width="820">
 </p>
 
-You already know the symptoms:
+The failure modes of long-horizon work are familiar:
 
-- Your agent makes a plan, the session ends, and the plan is gone.
-- You run long or parallel sessions and can't tell what's in flight without reading transcripts.
-- You pointed the agent at a legacy task tracker and watched it burn context on API calls — or quietly stop updating the board.
+- The agent lays out a plan, the session ends, and the next session has never heard of it.
+- Sessions run long — or in parallel — and the only record of what's in flight is buried in transcripts.
+- The project state sits in a legacy tracker, and the agent burns context on API calls to reach it — or quietly stops updating the board.
 
 ---
 
@@ -45,10 +45,10 @@ slate is built for **Claude Code** today: the installer wires it up, and presenc
 **1. Install** — from your repository root:
 
 ```sh
-bash <(curl -fsSL https://raw.githubusercontent.com/bioneural/slate/main/install.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/kkurian/slate/main/install.sh)
 ```
 
-**2. Hand the agent some work:**
+**2. Hand the agent a project:**
 
 ```sh
 claude "plan the payment-retry work as slate issues"
@@ -60,17 +60,17 @@ claude "plan the payment-retry work as slate issues"
 python3 tasks/slate.py    # → http://localhost:8787
 ```
 
-That's it. Issues appear as the agent files them, dots pulse on what it's touching, and the next session picks the plan back up — no re-explaining. The only requirements are Python 3 and `curl`: no account, no database, no pip, no build step.
+That's it. Issues appear as the agent files them, dots pulse on what it's touching, and tomorrow's session inherits today's plan — the project keeps moving instead of starting over. The only requirements are Python 3 and `curl`: no account, no database, no pip, no build step.
 
 ---
 
 ## Why markdown-first
 
-Humans and AIs build software together. Both must track the work. This is where they part: a human reads a project through arrangement — position, grouping, the whole grasped at once. An AI perceives no arrangement. It works in text — parsing, emitting — and visual layout gives it nothing. Worse, layout is not free: rendered markup is noise the agent must still read, and that reading spends context the work itself should hold. Dressing data for an eye the agent does not have is pure waste. I do not tolerate waste.
+Humans and AIs run projects together. Both must track the work. This is where they part: a human reads a project through arrangement — position, grouping, the whole grasped at once. An AI perceives no arrangement. It works in text — parsing, emitting — and visual layout gives it nothing. Worse, layout is not free: rendered markup is noise the agent must still read, and that reading spends context the work itself should hold. Dressing data for an eye the agent does not have is pure waste. I do not tolerate waste.
 
 slate inverts the usual priorities of a task tracker. Most are built for the eye: the work sits in a database behind a visual interface; the machine reaches it through an API, second-class. slate makes the markdown primary — one file per issue, exactly what an agent reads and writes unassisted. The board is rendered from those files, for you. The view serves the human; the source serves the agent. Neither reader is an afterthought.
 
-The markdown is the system of record. The viewer is one Python file, standard library only, and disposable. Delete it; nothing is lost.
+The markdown is the system of record — it lives in your repo, branches with it, diffs in review, and outlasts any session, any viewer, any vendor. Delete `slate.py`; the project is still all there.
 
 ---
 
@@ -152,7 +152,7 @@ Link issues with `[[T-2]]` wikilinks. The sidebar brand shows the `title` from y
 
 ## Design
 
-- **The markdown is the source of truth.** The viewer is disposable.
+- **The markdown is the source of truth.** The viewer is disposable; the project outlasts it.
 - **Nearly read-only by construction.** The server's only writes are the `order` and `status` frontmatter fields; it cannot alter the tracker beyond that.
 - **One renderer, two outputs.** The live server and the static build share the same rendering, so they cannot drift.
 - **Zero dependencies.** Python standard library only.

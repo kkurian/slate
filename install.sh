@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # slate installer — copy slate into your repository and make your agent aware of it.
 #
-#   bash <(curl -fsSL https://raw.githubusercontent.com/bioneural/slate/main/install.sh) [dir]
+#   bash <(curl -fsSL https://raw.githubusercontent.com/kkurian/slate/main/install.sh) [dir]
 #
 # [dir] is where slate lives in your repo (default: tasks). Run from your repo root.
 # Re-run any time to update slate.py, AGENTS.md, and the template in place; your
@@ -9,7 +9,7 @@
 set -euo pipefail
 
 DIR="${1:-tasks}"
-RAW="${SLATE_RAW:-https://raw.githubusercontent.com/bioneural/slate/main}"
+RAW="${SLATE_RAW:-https://raw.githubusercontent.com/kkurian/slate/main}"
 
 command -v python3 >/dev/null 2>&1 || { echo "slate: python3 is required but not found" >&2; exit 1; }
 command -v curl    >/dev/null 2>&1 || { echo "slate: curl is required but not found" >&2; exit 1; }
