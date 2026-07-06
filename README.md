@@ -14,9 +14,9 @@ The trouble is, the way AIs natively track their work in text files is indeciphe
 
 Slate defines an AI-friendly markdown format for AIs to track project tasks along with a server for rendering those tasks in a live HTML dashboard. The result is a Linear-like board that your Claude Code knows how to drive. As Claude creates and updates tasks for itself, the board updates in real time. Shaping and executing tasks becomes a true pairing excercise.
 
-Could you do all of this with a legacy SaaS task tracking system? Kind of, sort of, not really. Unlike those solutions, slate stores everything locally on disk so there are no API calls and your AI has access to everything all at once. Everything works better this way. 
+Could you do all of this with a legacy SaaS task tracking system? Kind of, sort of, not really. Unlike those solutions, slate stores everything locally on disk so there are no API calls and your AI has access to everything all at once. AIs work better, faster this way.
 
-Slate is built for the solo-developer, multiple-agent model of building software. However, since slate tasks are stored in your repo along with your code, there's no reason in principle why slate wouldn't work in a multi-developer setting at least to some extent. YOLO and YMMV. Give it a rip!
+Slate is built for the solo-developer, multiple-agent model of building software. However, since slate tasks are stored in your repo along with your code, there's no reason in principle why slate wouldn't work in a multi-developer setting at least to some extent. YOLO and YMMV, so give it a rip!
 
 <p align="center">
   <img src="docs/screenshot.png" alt="the slate board mid-flight: a sidebar with status counts and '2 agents active · 5 workers', and an In Progress list with pulsing dots on the issues agents are touching right now" width="820">
