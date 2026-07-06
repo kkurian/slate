@@ -5,20 +5,22 @@
 </h1>
 
 <p align="center">
-  <strong>Agents can run whole projects now. slate is where the project lives — and how you watch it move.</strong>
+  <strong>Ask not what your AI can do for you. Ask what you can do for your AI.</strong>
 </p>
 
-A project outlives every context window. The plan, the open threads, what shipped, what's next — that state needs a home every session can reach, or the project starts over each morning. slate gives it one: markdown files in your repo, the one medium agents read and write natively. Claude Code plans into them, works from them, and closes them out across as many sessions as the project takes; you watch a live board, down to which issue an agent is touching this second.
+AIs are 💩 for long-horizon strategic project management. They need humans for oversight and direction.
+
+The trouble is, the way AIs natively track their work in text files is indecipherable to humans in a hurry. 
+
+Slate defines an AI-friendly markdown format for AIs to track project tasks along with a server for rendering those tasks in a live HTML dashboard. The result is a Linear-like board that your Claude Code knows how to drive. As Claude creates and updates tasks for itself, the board updates in real time. Shaping and executing tasks becomes a true pairing excercise.
+
+Could you do all of this with a legacy SaaS task tracking system? Kind of, sort of, not really. Unlike those solutions, slate stores everything locally on disk so there are no API calls and your AI has access to everything all at once. Everything works better this way. 
+
+Slate is built for the solo-developer, multiple-agent model of building software. However, since slate tasks are stored in your repo along with your code, there's no reason in principle why slate wouldn't work in a multi-developer setting at least to some extent. YOLO and YMMV. Give it a rip!
 
 <p align="center">
   <img src="docs/screenshot.png" alt="the slate board mid-flight: a sidebar with status counts and '2 agents active · 5 workers', and an In Progress list with pulsing dots on the issues agents are touching right now" width="820">
 </p>
-
-The failure modes of long-horizon work are familiar:
-
-- The agent lays out a plan, the session ends, and the next session has never heard of it.
-- Sessions run long — or in parallel — and the only record of what's in flight is buried in transcripts.
-- The project state sits in a legacy tracker, and the agent burns context on API calls to reach it — or quietly stops updating the board.
 
 ---
 
@@ -66,11 +68,15 @@ That's it. Issues appear as the agent files them, dots pulse on what it's touchi
 
 ## Why markdown-first
 
-Humans and AIs run projects together. Both must track the work. This is where they part: a human reads a project through arrangement — position, grouping, the whole grasped at once. An AI perceives no arrangement. It works in text — parsing, emitting — and visual layout gives it nothing. Worse, layout is not free: rendered markup is noise the agent must still read, and that reading spends context the work itself should hold. Dressing data for an eye the agent does not have is pure waste. I do not tolerate waste.
+slate inverts the usual task tracker structure.
 
-slate inverts the usual priorities of a task tracker. Most are built for the eye: the work sits in a database behind a visual interface; the machine reaches it through an API, second-class. slate makes the markdown primary — one file per issue, exactly what an agent reads and writes unassisted. The board is rendered from those files, for you. The view serves the human; the source serves the agent. Neither reader is an afterthought.
+Legacy task trackers primarily store things in a database and serve an interactive visual interface, with agents reaching the database through a second-class API.
 
-The markdown is the system of record — it lives in your repo, branches with it, diffs in review, and outlasts any session, any viewer, any vendor. Delete `slate.py`; the project is still all there.
+slate makes local markdown files primary — one file per issue, exactly what an agent natively reads and writes. The visual interface is rendered from the files and largely static. The agent, not the human, manages the markdown files and therefore the tasks.
+
+This allows humans and AIs run projects together. The human gets a familiar web UI. The AI gets structured, local text.
+
+With markdown as the system of record, your entire project plan lives in your repo, branches with it, diffs in review, and outlasts any session, any viewer, any vendor. You can even delete the `slate.py` renderer and the project is still all there.
 
 ---
 
@@ -152,12 +158,7 @@ Link issues with `[[T-2]]` wikilinks. The sidebar brand shows the `title` from y
 
 ## Design
 
-- **The markdown is the source of truth.** The viewer is disposable; the project outlasts it.
-- **Nearly read-only by construction.** The server's only writes are the `order` and `status` frontmatter fields; it cannot alter the tracker beyond that.
-- **One renderer, two outputs.** The live server and the static build share the same rendering, so they cannot drift.
-- **Zero dependencies.** Python standard library only.
-
-The viewer renders a focused subset of markdown — headings, lists, task checkboxes, tables, code, blockquotes, links, and wikilinks — enough for issues.
+Zero-dependency other than Python standard library. Markdown as source of truth. Human intelligible. Built for agents and their humans, by agents and their humans.
 
 ---
 
