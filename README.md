@@ -8,7 +8,7 @@
   <strong>Ask not what your AI can do for you. Ask what you can do for your AI.</strong>
 </p>
 
-AIs are 💩 for long-horizon strategic project management. They need humans for oversight and direction.
+AIs are 💩 for long-horizon project management. They need humans for oversight and direction.
 
 The trouble is, the way AIs natively track their work in text files is indecipherable to humans in a hurry. 
 
