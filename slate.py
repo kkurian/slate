@@ -69,6 +69,8 @@ def parse_doc(text):
                 if ":" in line:
                     k, v = line.split(":", 1)
                     k, v = k.strip(), v.strip()
+                    if len(v) >= 2 and v[0] == v[-1] and v[0] in ("'", '"'):
+                        v = v[1:-1]          # drop one pair of matching YAML quotes
                     if v.startswith("[") and v.endswith("]"):
                         v = [x.strip() for x in v[1:-1].split(",") if x.strip()]
                     meta[k] = v
