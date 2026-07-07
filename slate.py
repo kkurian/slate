@@ -86,11 +86,15 @@ def url_for(kind, ident=None):
             return "index.html"
         if kind == "status":
             return f"status-{slug(ident)}.html"
+        if kind == "waves":
+            return "waves.html"
         return f"{ident}.html"
     if kind == "project":
         return "/"
     if kind == "status":
         return f"/status/{slug(ident)}"
+    if kind == "waves":
+        return "/waves"
     return f"/issue/{ident}"
 
 
@@ -275,6 +279,16 @@ def _sort_key(item):
         return (1, 0, _id_key(item))
 
 
+def _wave_sort_key(value):
+    # Numeric waves first, ascending (wave 2 before wave 10); string waves after,
+    # alphabetical. Grouping is by the raw value, so the key only orders the groups.
+    s = str(value).strip()
+    try:
+        return (0, float(s), "")
+    except ValueError:
+        return (1, 0.0, s.lower())
+
+
 def list_issues():
     items = []
     if ISSUES.exists():
@@ -286,6 +300,7 @@ def list_issues():
                 "status": meta.get("status", "Backlog"),
                 "priority": meta.get("priority", "No priority"),
                 "order": meta.get("order"),
+                "wave": meta.get("wave"),
                 "updated": meta.get("updated", ""),
             })
     items.sort(key=_sort_key)
@@ -469,7 +484,8 @@ SSE_SCRIPT = """<script>
     if(!a) return;
     var u = new URL(a.href, location.href);
     if(u.origin !== location.origin) return;                 // external link → default
-    if(u.pathname !== '/' && !u.pathname.startsWith('/issue/')
+    if(u.pathname !== '/' && u.pathname !== '/waves'
+       && !u.pathname.startsWith('/issue/')
        && !u.pathname.startsWith('/status/')) return;
     if(u.pathname === location.pathname && u.hash) return;    // in-page anchor → default
     e.preventDefault();
@@ -626,6 +642,14 @@ def priority_icon(pri):
     return _svg("".join(bars))
 
 
+def waves_icon():
+    """Stacked wavy lines — the marker for the Waves view."""
+    return _svg('<path d="M2 6 q1.5 -2 3 0 t3 0 t3 0" fill="none" stroke="#6e7178" '
+                'stroke-width="1.4" stroke-linecap="round"/>'
+                '<path d="M2 10 q1.5 -2 3 0 t3 0 t3 0" fill="none" stroke="#6e7178" '
+                'stroke-width="1.4" stroke-linecap="round"/>')
+
+
 FOOTER = ('<footer class="foot">rendered by '
           '<a href="https://github.com/kkurian/slate">slate</a>. built by '
           '<a href="https://github.com/kkurian">kkurian</a>.</footer>')
@@ -665,6 +689,12 @@ def sidebar_html(active_status=None):
         parts.append(
             f'<a class="{cls}" href="{url_for("status", status)}">{status_icon(status)}'
             f'{html.escape(status)}<span class="n">{count}</span></a>')
+    waved = sum(1 for it in issues if it.get("wave"))
+    if waved:                                # the Waves view only exists once a wave is set
+        cls = "nav-row active" if active_status == "Waves" else "nav-row"
+        parts.append(
+            f'<a class="{cls}" href="{url_for("waves")}">{waves_icon()}'
+            f'Waves<span class="n">{waved}</span></a>')
     pres = agent_presence()
     n, workers = pres["sessions"], pres["workers"]
     if n:
@@ -708,10 +738,37 @@ def render_status_page(status, live=True):
     return page(f"{status} · {project_title()}", sidebar_html(status), head + body, live=live)
 
 
+def render_waves_page(live=True):
+    """One section per wave (sorted), each listing its issues by the usual sort; a
+    trailing 'No wave' section holds issues without the field so none disappear.
+    Display-only — no drag reorder here (that write path is per-status)."""
+    issues = list_issues()                   # already in _sort_key order within each group
+    groups = {}
+    for it in issues:
+        if it.get("wave"):
+            groups.setdefault(str(it["wave"]), []).append(it)
+    nowave = [it for it in issues if not it.get("wave")]
+    waved = sum(len(v) for v in groups.values())
+    head = (f'<div class="view-head"><h1>{waves_icon()}Waves'
+            f'<span class="vcount">{waved}</span></h1></div>')
+
+    def section(label, rows):
+        body = "".join(issue_row(it) for it in rows)
+        return (f'<section class="active"><div class="group-h">{html.escape(label)}</div>'
+                f'<div class="list">{body}</div></section>')
+
+    parts = [section(f"Wave {value}", groups[value])
+             for value in sorted(groups, key=_wave_sort_key)]
+    if nowave:
+        parts.append(section("No wave", nowave))
+    body = "".join(parts) if parts else '<p class="empty">No issues.</p>'
+    return page(f"Waves · {project_title()}", sidebar_html("Waves"), head + body, live=live)
+
+
 def render_props(meta):
-    fields = [("Status", "status"), ("Priority", "priority"), ("Assignee", "assignee"),
-              ("Labels", "labels"), ("Project", "project"), ("Parent", "parent"),
-              ("Due", "due"), ("Created", "created"),
+    fields = [("Status", "status"), ("Priority", "priority"), ("Wave", "wave"),
+              ("Assignee", "assignee"), ("Labels", "labels"), ("Project", "project"),
+              ("Parent", "parent"), ("Due", "due"), ("Created", "created"),
               ("Updated", "updated")]
     rows = ['<h3>Properties</h3><dl class="props-dl">']
     for label, key in fields:
@@ -1050,6 +1107,10 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/":
             return self._html(render_project_page())
+        if path == "/waves":
+            if any(it.get("wave") for it in list_issues()):
+                return self._html(render_waves_page())
+            return self.send_error(404)
         m = re.match(r"^/status/([a-z0-9-]+)$", path)
         if m:
             status = {slug(s): s for s in STATUS_ORDER}.get(m.group(1))
@@ -1145,6 +1206,9 @@ def build(outdir):
             (out / f"status-{slug(status)}.html").write_text(
                 render_status_page(status, live=False), encoding="utf-8")
             views += 1
+    if any(it.get("wave") for it in issues):
+        (out / "waves.html").write_text(render_waves_page(live=False), encoding="utf-8")
+        views += 1
     count = 0
     for it in issues:
         res = find_issue(it["id"])
