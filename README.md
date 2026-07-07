@@ -68,11 +68,11 @@ That's it. Issues appear as the agent files them, dots pulse on what it's touchi
 
 ## Why markdown-first
 
-slate inverts the usual task tracker structure.
+Slate inverts the usual task tracker structure.
 
 Legacy task trackers primarily store things in a database and serve an interactive visual interface, with agents reaching the database through a second-class API.
 
-slate makes local markdown files primary — one file per issue, exactly what an agent natively reads and writes. The visual interface is rendered from the files and largely static. The agent, not the human, manages the markdown files and therefore the tasks.
+Slate makes local markdown files primary — one file per issue, exactly what an agent natively reads and writes. The visual interface is rendered from the files and largely static. The agent, not the human, manages the markdown files and therefore the tasks.
 
 This allows humans and AIs run projects together. The human gets a familiar web UI. The AI gets structured, local text.
 
