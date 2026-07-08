@@ -499,16 +499,28 @@ SSE_SCRIPT = """<script>
   // Drag-to-reorder within a status view's list. The drop POSTs the list's new
   // id sequence to /reorder; the server renumbers `order:` in the issue files and
   // the SSE reload below re-renders everything from the markdown.
-  var dragEl = null, dragIds = '', dragHome = null;
+  var dragEl = null, dragIds = '', dragHome = null, dragStatus = null;
   function listIds(list){
     return Array.prototype.map.call(
       list.querySelectorAll('.item[data-id]'), function(el){ return el.dataset.id; });
+  }
+  // A status view may render as several wave sections, each its own list sharing the
+  // status. The persisted order is the concatenation of every such list in the view,
+  // in document order — so a within-section reorder saves, a cross-section move can't.
+  function viewIds(status){
+    var ids = [];
+    document.querySelectorAll('.list[data-status]').forEach(function(l){
+      if(l.dataset.status === status)
+        Array.prototype.push.apply(ids, listIds(l));
+    });
+    return ids;
   }
   document.addEventListener('dragstart', function(e){
     var it = e.target.closest('.list .item[data-id]');
     if(!it) return;
     dragEl = it;
-    dragIds = listIds(it.closest('.list')).join(',');
+    dragStatus = it.closest('.list').dataset.status;
+    dragIds = viewIds(dragStatus).join(',');
     dragHome = { parent: it.parentNode, next: it.nextSibling };   // for snap-back on cancel
     it.classList.add('dragging');
     e.dataTransfer.effectAllowed = 'move';
@@ -532,8 +544,8 @@ SSE_SCRIPT = """<script>
   document.addEventListener('drop', function(e){ if(dragEl) e.preventDefault(); });
   document.addEventListener('dragend', function(e){
     if(!dragEl) return;
-    var it = dragEl, home = dragHome, list = it.closest('.list');
-    dragEl = null; dragHome = null;
+    var it = dragEl, home = dragHome, status = dragStatus, list = it.closest('.list');
+    dragEl = null; dragHome = null; dragStatus = null;
     it.classList.remove('dragging');
     // Esc or a drop outside any valid target cancels: snap back, save nothing.
     if(e.dataTransfer && e.dataTransfer.dropEffect === 'none' && home){
@@ -541,10 +553,10 @@ SSE_SCRIPT = """<script>
       return;
     }
     if(!list) return;
-    var ids = listIds(list);
+    var ids = viewIds(status);
     if(ids.join(',') === dragIds) return;                             // nothing moved
     fetch('/reorder', {method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({status: list.dataset.status, ids: ids})});
+      body: JSON.stringify({status: status, ids: ids})});
   });
 
   // Sidebar width: drag the sash, persisted per browser.
@@ -598,17 +610,20 @@ def _svg(inner):
     return f'<svg class="ico" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">{inner}</svg>'
 
 
+def _ring(c, extra=""):
+    return f'<circle cx="8" cy="8" r="6" fill="none" stroke="{c}" stroke-width="1.6"{extra}/>'
+
+
+def _pie(c, frac):
+    circ = 18.85  # 2*pi*3
+    return (f'<circle cx="8" cy="8" r="3" fill="none" stroke="{c}" stroke-width="6" '
+            f'stroke-dasharray="{round(frac * circ, 2)} {circ}" transform="rotate(-90 8 8)"/>')
+
+
 def status_icon(status):
     """Linear-style status ring/disc."""
     s = slug(status)
-
-    def ring(c, extra=""):
-        return f'<circle cx="8" cy="8" r="6" fill="none" stroke="{c}" stroke-width="1.6"{extra}/>'
-
-    def pie(c, frac):
-        circ = 18.85  # 2*pi*3
-        return (f'<circle cx="8" cy="8" r="3" fill="none" stroke="{c}" stroke-width="6" '
-                f'stroke-dasharray="{round(frac * circ, 2)} {circ}" transform="rotate(-90 8 8)"/>')
+    ring, pie = _ring, _pie
 
     if s == "backlog":
         return _svg(ring("#6e7178", ' stroke-dasharray="1.6 1.8"'))
@@ -652,6 +667,12 @@ def waves_icon():
                 'stroke-width="1.4" stroke-linecap="round"/>')
 
 
+def progress_icon(done, total):
+    """Fractional pie showing a wave's completion (done/total), muted track behind."""
+    frac = (done / total) if total else 0
+    return _svg(_ring("#3a3d44") + _pie("#7d87e0", frac))
+
+
 FOOTER = ('<footer class="foot">rendered by '
           '<a href="https://github.com/kkurian/slate">slate</a>. built by '
           '<a href="https://github.com/kkurian">kkurian</a>.</footer>')
@@ -691,12 +712,18 @@ def sidebar_html(active_status=None):
         parts.append(
             f'<a class="{cls}" href="{url_for("status", status)}">{status_icon(status)}'
             f'{html.escape(status)}<span class="n">{count}</span></a>')
-    waved = sum(1 for it in issues if it.get("wave"))
-    if waved:                                # the Waves view only exists once a wave is set
+    # Waves is a lens across the statuses, not a status — set it apart with a divider,
+    # and count distinct waves (not issues carrying one). The divider carries its style
+    # inline: it only exists in wave mode, so the shared CSS (and no-wave builds) is left
+    # byte-identical.
+    waves = {str(it["wave"]) for it in issues if it.get("wave")}
+    if waves:                                # the Waves view only exists once a wave is set
         cls = "nav-row active" if active_status == "Waves" else "nav-row"
+        parts.append('<div style="height:1px;background:var(--line);margin:9px 8px 8px">'
+                     '</div>')
         parts.append(
             f'<a class="{cls}" href="{url_for("waves")}">{waves_icon()}'
-            f'Waves<span class="n">{waved}</span></a>')
+            f'Waves<span class="n">{len(waves)}</span></a>')
     pres = agent_presence()
     n, workers = pres["sessions"], pres["workers"]
     if n:
@@ -726,43 +753,83 @@ def issue_row(it, drag=False):
     )
 
 
-def render_status_page(status, live=True):
-    issues = [it for it in list_issues() if it["status"] == status]
-    head = (f'<div class="view-head"><h1>{status_icon(status)}{html.escape(status)}'
-            f'<span class="vcount">{len(issues)}</span></h1></div>')
-    if issues:
-        drag = live
-        data = f' data-status="{html.escape(status, quote=True)}"' if drag else ""
-        body = (f'<section class="list"{data}>'
-                + "".join(issue_row(it, drag=drag) for it in issues) + "</section>")
-    else:
-        body = '<p class="empty">No issues.</p>'
-    return page(f"{status} · {project_title()}", sidebar_html(status), head + body, live=live)
-
-
-def render_waves_page(live=True):
-    """One section per wave (sorted), each listing its issues by the usual sort; a
-    trailing 'No wave' section holds issues without the field so none disappear.
-    Display-only — no drag reorder here (that write path is per-status)."""
-    issues = list_issues()                   # already in _sort_key order within each group
+def _wave_groups(issues):
+    """Partition issues (already in _sort_key order) into ([(value, rows)...], nowave),
+    wave groups ordered by _wave_sort_key and the No-wave rows returned separately."""
     groups = {}
     for it in issues:
         if it.get("wave"):
             groups.setdefault(str(it["wave"]), []).append(it)
     nowave = [it for it in issues if not it.get("wave")]
-    waved = sum(len(v) for v in groups.values())
+    ordered = [(value, groups[value]) for value in sorted(groups, key=_wave_sort_key)]
+    return ordered, nowave
+
+
+def render_status_page(status, live=True):
+    issues = [it for it in list_issues() if it["status"] == status]
+    head = (f'<div class="view-head"><h1>{status_icon(status)}{html.escape(status)}'
+            f'<span class="vcount">{len(issues)}</span></h1></div>')
+    if not issues:
+        return page(f"{status} · {project_title()}", sidebar_html(status),
+                    head + '<p class="empty">No issues.</p>', live=live)
+    drag = live
+    data = f' data-status="{html.escape(status, quote=True)}"' if drag else ""
+
+    def rows(items):
+        return "".join(issue_row(it, drag=drag) for it in items)
+
+    if any(it.get("wave") for it in issues):
+        # Group by wave. Each section is its own draggable list carrying the same
+        # data-status; the drop handler persists the concatenation of all sections in
+        # displayed order, so dragging reorders within a section but never across one.
+        ordered, nowave = _wave_groups(issues)
+        parts = [_group_section(f"Wave {html.escape(str(value))}", rows(items), data)
+                 for value, items in ordered]
+        if nowave:
+            parts.append(_group_section("No wave", rows(nowave), data))
+        body = "".join(parts)
+    else:
+        body = f'<section class="list"{data}>{rows(issues)}</section>'
+    return page(f"{status} · {project_title()}", sidebar_html(status), head + body, live=live)
+
+
+def _group_section(label, rows_html, data=""):
+    """A titled group: the group-h header treatment over a (optionally draggable) list."""
+    return (f'<section class="active"><div class="group-h">{label}</div>'
+            f'<div class="list"{data}>{rows_html}</div></section>')
+
+
+def _wave_status_key(it):
+    """Order a wave's issues by workflow position (In Progress first), then the usual
+    sort. Unknown statuses fall after the known ones."""
+    try:
+        rank = STATUS_ORDER.index(it["status"])
+    except ValueError:
+        rank = len(STATUS_ORDER)
+    return (rank, _sort_key(it))
+
+
+def render_waves_page(live=True):
+    """A progress dashboard: one section per wave (sorted), its header carrying a
+    fractional pie and a done/total count; issues within a wave lead with the ones in
+    flight. A trailing 'No wave' section holds issues without the field so none
+    disappear. Display-only — no drag reorder here (that write path is per-status)."""
+    issues = list_issues()                   # already in _sort_key order within each group
+    ordered, nowave = _wave_groups(issues)
     head = (f'<div class="view-head"><h1>{waves_icon()}Waves'
-            f'<span class="vcount">{waved}</span></h1></div>')
+            f'<span class="vcount">{len(ordered)}</span></h1></div>')
 
-    def section(label, rows):
-        body = "".join(issue_row(it) for it in rows)
-        return (f'<section class="active"><div class="group-h">{html.escape(label)}</div>'
-                f'<div class="list">{body}</div></section>')
-
-    parts = [section(f"Wave {value}", groups[value])
-             for value in sorted(groups, key=_wave_sort_key)]
+    parts = []
+    for value, items in ordered:
+        done = sum(1 for it in items if it["status"] == "Done")
+        rows = sorted(items, key=_wave_status_key)
+        # Inline style so the shared CSS stays byte-identical to a no-wave build.
+        label = (f'{progress_icon(done, len(items))}Wave {html.escape(str(value))}'
+                 f'<span style="color:var(--faint);font-weight:500;'
+                 f'font-variant-numeric:tabular-nums">{done}/{len(items)}</span>')
+        parts.append(_group_section(label, "".join(issue_row(it) for it in rows)))
     if nowave:
-        parts.append(section("No wave", nowave))
+        parts.append(_group_section("No wave", "".join(issue_row(it) for it in nowave)))
     body = "".join(parts) if parts else '<p class="empty">No issues.</p>'
     return page(f"Waves · {project_title()}", sidebar_html("Waves"), head + body, live=live)
 
@@ -830,12 +897,17 @@ def render_issue_page(p, meta, body, live=True):
     if hit:
         live_badge = (f'<span class="badge live"><span class="pulse"></span>'
                       f'agent working · {_age_label(hit["age"])}</span>')
+    wave = meta.get("wave")
+    # Non-interactive chip (a plain span, like the priority chip) — the wave is set by
+    # editing the file, never from here.
+    wave_badge = (f'<span class="badge">{waves_icon()}Wave {html.escape(str(wave))}</span>'
+                  if wave else "")
     head = (
         f'<div class="issue-head"><div class="crumb">{html.escape(iid)}</div>'
         f"<h1>{html.escape(title)}</h1>"
         f'<div class="badges">{status_badge}'
         f'<span class="badge">{priority_icon(pri)}{html.escape(pri)}</span>'
-        f'{live_badge}</div></div>'
+        f'{wave_badge}{live_badge}</div></div>'
     )
     main = '<article class="md issue">' + head + render_blocks(body) + "</article>"
     return page(f"{iid} · {title}", sidebar_html(status), main, props=render_props(meta), live=live)
