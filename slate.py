@@ -303,6 +303,7 @@ def list_issues():
                 "priority": meta.get("priority", "No priority"),
                 "order": meta.get("order"),
                 "wave": meta.get("wave"),
+                "assignee": meta.get("assignee", ""),
                 "updated": meta.get("updated", ""),
             })
     items.sort(key=_sort_key)
@@ -673,6 +674,29 @@ def progress_icon(done, total):
     return _svg(_ring("#3a3d44") + _pie("#7d87e0", frac))
 
 
+# Hues reused from the icon family above; a disc's color is its assignee's palette slot.
+ASSIGNEE_HUES = ["#7d87e0", "#4cb782", "#f2c94c", "#f2994a", "#9498a1"]
+
+
+def _assignee_hue(name):
+    """Deterministic color per assignee: sorted distinct assignees → palette index."""
+    names = sorted({it["assignee"] for it in list_issues() if it.get("assignee")})
+    idx = names.index(name) if name in names else 0
+    return ASSIGNEE_HUES[idx % len(ASSIGNEE_HUES)]
+
+
+def assignee_icon(name):
+    """A filled disc carrying the assignee's first initial. Empty name → nothing."""
+    if not name:
+        return ""
+    c = _assignee_hue(name)
+    disc = _svg(f'<circle cx="8" cy="8" r="7" fill="{c}" fill-opacity="0.25"/>'
+                f'<text x="8" y="8" text-anchor="middle" dominant-baseline="central" '
+                f'font-size="8.5" font-weight="600" fill="{c}">'
+                f'{html.escape(name.strip()[:1].upper())}</text>')
+    return f'<span title="{html.escape(name, quote=True)}">{disc}</span>'
+
+
 FOOTER = ('<footer class="foot">rendered by '
           '<a href="https://github.com/kkurian/slate">slate</a>. built by '
           '<a href="https://github.com/kkurian">kkurian</a>.</footer>')
@@ -744,12 +768,13 @@ def issue_row(it, drag=False):
     hit = agent_presence()["issues"].get(it["id"])
     dot = (f'<span class="pulse" title="agent active · {_age_label(hit["age"])}"></span>'
            if hit else "")
+    disc = assignee_icon(it.get("assignee", ""))
     return (
         f'<a class="item"{attrs} href="{url_for("issue", it["id"])}">'
         f'{GRIP if drag else ""}'
         f'{status_icon(it["status"])}{priority_icon(it["priority"])}'
         f'<span class="iid">{html.escape(it["id"])}</span>'
-        f'<span class="ititle">{html.escape(it["title"])}</span>{dot}{date}</a>'
+        f'<span class="ititle">{html.escape(it["title"])}</span>{dot}{disc}{date}</a>'
     )
 
 
@@ -849,6 +874,8 @@ def render_props(meta):
                 v = status_icon(str(v)) + html.escape(str(v))
             elif key == "priority":
                 v = priority_icon(str(v)) + html.escape(str(v))
+            elif key == "assignee":
+                v = assignee_icon(str(v)) + html.escape(str(v))
             elif key == "parent":
                 v = render_inline(str(v))
             else:
