@@ -375,9 +375,13 @@ a{color:var(--ink);text-decoration:none}
 .idate{margin-left:auto;flex:none;padding-left:14px;color:var(--faint);font-size:12.5px;
   font-variant-numeric:tabular-nums}
 .idate .k{opacity:.7}
-.av{width:17px;height:17px;border-radius:50%;flex:none;display:inline-flex;
+.av{position:relative;width:17px;height:17px;border-radius:50%;flex:none;display:inline-flex;
   align-items:center;justify-content:center;font-size:9px;font-weight:600;
-  color:rgba(255,255,255,.92);letter-spacing:.02em;line-height:1}
+  color:rgba(255,255,255,.92);letter-spacing:.02em;line-height:1;cursor:default}
+.av:hover::after{content:attr(data-name);position:absolute;bottom:calc(100% + 7px);right:-2px;
+  background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:6px;
+  padding:3px 8px;font-size:11.5px;font-weight:500;letter-spacing:0;white-space:nowrap;
+  pointer-events:none;z-index:5}
 .item .av{margin-left:auto}
 .item .av+.idate{margin-left:0;padding-left:12px}
 .content{padding:42px 60px 64px;max-width:860px;display:flex;flex-direction:column}
@@ -694,11 +698,12 @@ def _assignee_hue(name):
 def assignee_icon(name):
     """A solid disc carrying the assignee's initial in white — the same visual
     weight as the Done disc. An HTML span (not SVG text) keeps the letter crisp.
-    Empty name → nothing; in a row, CSS right-aligns it beside the date."""
+    Empty name → nothing; in a row, CSS right-aligns it beside the date.
+    Hover shows the full name via a CSS tooltip (instant, unlike title=)."""
     if not name:
         return ""
     return (f'<span class="av" style="background:{_assignee_hue(name)}" '
-            f'title="{html.escape(name, quote=True)}">'
+            f'data-name="{html.escape(name, quote=True)}">'
             f'{html.escape(name.strip()[:1].upper())}</span>')
 
 
