@@ -375,6 +375,11 @@ a{color:var(--ink);text-decoration:none}
 .idate{margin-left:auto;flex:none;padding-left:14px;color:var(--faint);font-size:12.5px;
   font-variant-numeric:tabular-nums}
 .idate .k{opacity:.7}
+.av{width:17px;height:17px;border-radius:50%;flex:none;display:inline-flex;
+  align-items:center;justify-content:center;font-size:9px;font-weight:600;
+  color:rgba(255,255,255,.92);letter-spacing:.02em;line-height:1}
+.item .av{margin-left:auto}
+.item .av+.idate{margin-left:0;padding-left:12px}
 .content{padding:42px 60px 64px;max-width:860px;display:flex;flex-direction:column}
 .view-head h1{display:flex;align-items:center;gap:9px;margin:0 0 18px;
   font-size:18px;font-weight:600;letter-spacing:-.01em}
@@ -674,8 +679,9 @@ def progress_icon(done, total):
     return _svg(_ring("#3a3d44") + _pie("#7d87e0", frac))
 
 
-# Hues reused from the icon family above; a disc's color is its assignee's palette slot.
-ASSIGNEE_HUES = ["#7d87e0", "#4cb782", "#f2c94c", "#f2994a", "#9498a1"]
+# Mid-tone hues that carry a near-white initial (the Done disc and the urgent box
+# already set this precedent). A disc's color is its assignee's palette slot.
+ASSIGNEE_HUES = ["#7d87e0", "#4cb782", "#f2994a", "#b06fd4", "#6e7178"]
 
 
 def _assignee_hue(name):
@@ -686,15 +692,14 @@ def _assignee_hue(name):
 
 
 def assignee_icon(name):
-    """A filled disc carrying the assignee's first initial. Empty name → nothing."""
+    """A solid disc carrying the assignee's initial in white — the same visual
+    weight as the Done disc. An HTML span (not SVG text) keeps the letter crisp.
+    Empty name → nothing; in a row, CSS right-aligns it beside the date."""
     if not name:
         return ""
-    c = _assignee_hue(name)
-    disc = _svg(f'<circle cx="8" cy="8" r="7" fill="{c}" fill-opacity="0.25"/>'
-                f'<text x="8" y="8" text-anchor="middle" dominant-baseline="central" '
-                f'font-size="8.5" font-weight="600" fill="{c}">'
-                f'{html.escape(name.strip()[:1].upper())}</text>')
-    return f'<span title="{html.escape(name, quote=True)}">{disc}</span>'
+    return (f'<span class="av" style="background:{_assignee_hue(name)}" '
+            f'title="{html.escape(name, quote=True)}">'
+            f'{html.escape(name.strip()[:1].upper())}</span>')
 
 
 FOOTER = ('<footer class="foot">rendered by '
