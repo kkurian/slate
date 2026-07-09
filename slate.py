@@ -1967,10 +1967,109 @@ def install(target=None):
     print("slate: agent will track work in slate")
 
 
+# --------------------------------------------------------------------------- #
+# doctor — a read-only board audit that surfaces stale states, never edits
+# --------------------------------------------------------------------------- #
+# One check today: an issue sitting in a review status while every pull request
+# it names has already merged. That pairing is usually a missed status flip —
+# the work landed but the issue was never moved out of review. doctor reports
+# the candidates and exits nonzero when it finds any, so it slots into a check
+# run; it never rewrites a file. Same `pr:` frontmatter the board reads for its
+# review glyphs is the authoritative PR list here — numbers mentioned only in
+# body prose are deliberately out of scope, since a task naming a merged
+# precedent PR is not the same as that task's own work having merged.
+#
+# A review status can be intentional even with every PR merged — waiting on a
+# human to flip it, follow-up work still owed, or a review happening off GitHub.
+# An issue may carry a `review_hold:` frontmatter value (a short reason) to
+# acknowledge that: doctor then lists it in a muted, still-visible held section
+# rather than flagging it, and does not count it toward the failing exit status.
+
+REVIEW_STATUSES = {"In Review"}
+
+
+def _pr_merge_partition(refs):
+    """Split PR refs into (merged, unmerged, unknown) by one gh fetch each.
+    'unmerged' is anything still open or closed-without-merge; 'unknown' is a PR
+    gh could not resolve — no binary, offline, or a bad number — so the caller
+    can decline to assert 'all merged' rather than guess."""
+    merged, unmerged, unknown = [], [], []
+    for n in refs:
+        info = _fetch_pr(n)
+        if info is None:
+            unknown.append(n)
+            continue
+        kind, _chip = _pr_state(info)
+        (merged if kind == "merged" else unmerged).append(n)
+    return merged, unmerged, unknown
+
+
+def doctor():
+    """Audit the board and print findings; return an exit status (1 if anything
+    is flagged, else 0). Read-only — no file is ever written."""
+    global MODE
+    MODE = "live"                       # doctor always talks to gh
+    flagged, held, indeterminate = [], [], []
+    for it in list_issues():
+        if it["status"] not in REVIEW_STATUSES:
+            continue
+        refs = _pr_refs(it)
+        if not refs:
+            continue
+        merged, unmerged, unknown = _pr_merge_partition(refs)
+        if unmerged or not merged:
+            continue                    # still real review work, or nothing resolved merged
+        if unknown:
+            indeterminate.append((it, merged, unknown))
+            continue
+        res = find_issue(it["id"])
+        hold = (res[1].get("review_hold") if res else None)
+        (held if hold else flagged).append((it, merged, hold))
+    _print_doctor(flagged, held, indeterminate)
+    return 1 if flagged else 0
+
+
+def _pr_list(nums):
+    return ", ".join(f"#{n}" for n in nums)
+
+
+def _doctor_entry(it, merged):
+    return (f"  {it['id']}  {it['title']}\n"
+            f"        status: {it['status']}   merged PRs: {_pr_list(merged)}")
+
+
+def _print_doctor(flagged, held, indeterminate):
+    if flagged:
+        print(f"slate doctor: {len(flagged)} issue(s) in a review status with every "
+              f"PR merged\n")
+        for it, merged, _hold in flagged:
+            print(_doctor_entry(it, merged))
+        print("\n  Likely stale: the work merged but the issue never left review. Move")
+        print("  each to Done (or the status that fits), or add `review_hold: <reason>`")
+        print("  to its frontmatter if the review status is intentional.")
+    else:
+        print("slate doctor: no stale review issues — every reviewing issue still has "
+              "unmerged or unresolved PRs.")
+    if held:
+        print(f"\nslate doctor: {len(held)} held (every PR merged, review_hold set) — "
+              f"not flagged")
+        for it, merged, hold in held:
+            print(f"{_doctor_entry(it, merged)}\n        held: {hold}")
+    if indeterminate:
+        print(f"\nslate doctor: {len(indeterminate)} indeterminate — gh could not resolve "
+              f"some PRs, so 'all merged' can't be asserted")
+        for it, merged, unknown in indeterminate:
+            print(f"  {it['id']}  {it['title']}\n"
+                  f"        merged: {_pr_list(merged) or 'none'}   "
+                  f"unresolved: {_pr_list(unknown)}")
+
+
 if __name__ == "__main__":
     cmd = sys.argv[1] if len(sys.argv) > 1 else "serve"
     if cmd == "build":
         build(sys.argv[2] if len(sys.argv) > 2 else "_site")
+    elif cmd == "doctor":
+        sys.exit(doctor())
     elif cmd == "install":
         install(sys.argv[2] if len(sys.argv) > 2 else None)
     else:

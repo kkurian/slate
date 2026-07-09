@@ -116,6 +116,7 @@ your-repo/
 ```sh
 python3 slate.py            # live board at http://localhost:8787
 python3 slate.py build out  # standalone HTML in ./out/ — no server needed, no write paths
+python3 slate.py doctor     # read-only audit: flag stale states, exit nonzero if any
 ```
 
 - **Live, everywhere.** `project.md` is the overview, each status a view, each issue a page. Navigation swaps in place; a file edited on disk updates the open page and holds your scroll. Even `slate.py` reloads itself: edit it and the server re-execs — a syntax error leaves the old server running until you fix it.
@@ -125,7 +126,8 @@ python3 slate.py build out  # standalone HTML in ./out/ — no server needed, no
 
 - **Pull requests view.** Once any issue carries a `pr:`, a **Pull requests** view appears in the sidebar beside Waves, its badge counting the open PRs. It lists one row per distinct pull request — issues sharing a PR list it once, linking back to each — grouped by review standing: *Changes requested*, *Awaiting review*, *Approved*, then muted *Merged* and *Closed* sections. Each live row carries the PR title, a draft/ready chip, and its reviewers with their verdicts and ages laid out in the open. With `gh` unavailable the view still lists every PR number and its issues from the frontmatter, each still linking to GitHub.
 - **Two write paths, no more.** Drag a row within a status view to reorder it (Esc cancels), or click the status chip on an issue page to move it. Each rewrites only the `order:` / `status:` frontmatter of the issues involved.
-- **Knobs.** `SLATE_PORT` sets the port; drag the sidebar's edge to resize it.
+- **Doctor.** `python3 slate.py doctor` is a read-only audit that never edits a file. Today it flags one smell: an issue in the **In Review** status whose every `pr:` has already merged — usually a status flip that was missed, the work landed but the issue never left review. It reports each candidate and exits nonzero, so it fits a pre-push or CI check; it reads the same `pr:` frontmatter the board's review glyphs do (PR numbers in body prose are out of scope), and fails soft when `gh` can't resolve a PR. A review status that is intentional even with every PR merged — awaiting a human flip, follow-up work, or a review happening off GitHub — carries a `review_hold: <reason>` field, which moves the issue to a muted *held* line instead of a flag and out of the failing exit status.
+- **Knobs.** `SLATE_PORT` sets the port; drag the sidebar's edge to resize it. `SLATE_REPO` (`owner/repo`) points `doctor` and the review glyphs at a repo other than the one `slate.py` sits in.
 
 ---
 
@@ -157,6 +159,7 @@ What this is and why it matters. Link issues with [[T-2]] wikilinks.
 | `order` | integer, optional | position within the status — set by dragging, or by hand |
 | `wave` | integer or text, optional | groups the issue in the Waves dashboard and in status views |
 | `pr` | number or list, optional | shows the linked pull request(s)' review state on the row and issue page |
+| `review_hold` | text, optional | reason an In Review issue stays put even with every PR merged; `doctor` lists it held, not flagged |
 
 Link issues with `[[T-2]]` wikilinks. The sidebar brand shows the `title` from your `project.md`, so slate reads as native to the project it sits in.
 

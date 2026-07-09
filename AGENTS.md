@@ -72,6 +72,15 @@ What this is and why it matters. Link issues with [[T-2]] wikilinks.
 - Set `updated` to today's date on any edit.
 - Record decisions and findings under Notes.
 
+## Audit
+
+`python3 slate.py doctor` is a read-only check — it never edits a file. It flags
+each **In Review** issue whose every `pr:` has merged, the usual sign of a status
+flip that was missed, and exits nonzero when it finds any. When a review status is
+intentional even with every PR merged — awaiting a human flip, follow-up work, or a
+review happening off GitHub — record `review_hold: <short reason>` in the issue's
+frontmatter; doctor then lists it as held rather than flagging it.
+
 ## Rules
 
 1. Edit the markdown files. The web viewer writes nothing except `order` and
