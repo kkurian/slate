@@ -376,9 +376,6 @@ a{color:var(--ink);text-decoration:none}
 .item.dragging .grip{cursor:grabbing}
 .iid{color:var(--faint);font-variant-numeric:tabular-nums;flex:none;font-size:12.5px}
 .ititle{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#c4c6cc}
-.idate{margin-left:auto;flex:none;padding-left:14px;color:var(--faint);font-size:12.5px;
-  font-variant-numeric:tabular-nums}
-.idate .k{opacity:.7}
 .av{position:relative;width:17px;height:17px;border-radius:50%;flex:none;display:inline-flex;
   align-items:center;justify-content:center;font-size:9px;font-weight:600;
   color:rgba(255,255,255,.92);letter-spacing:.02em;line-height:1;cursor:default}
@@ -386,20 +383,16 @@ a{color:var(--ink);text-decoration:none}
   background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:6px;
   padding:3px 8px;font-size:11.5px;font-weight:500;letter-spacing:0;white-space:nowrap;
   pointer-events:none;z-index:5}
-/* Right-hand cluster ordering: [pulse][rev][av][date]. The first present of
-   pulse/rev/av takes the auto-margin that right-aligns the whole cluster; the
-   ones after it (and the date after any of them) reset to a plain gap. */
+/* Right-hand cluster ordering: [pulse][rev][av]. The first present takes the
+   auto-margin that right-aligns the whole cluster; the ones after it reset to
+   a plain gap. */
 .item .av,.item .rev,.item .pulse{margin-left:auto}
 .item .pulse~.rev,.item .pulse~.av,.item .rev~.av{margin-left:0}
-.item .av+.idate,.item .rev+.idate,.item .pulse+.idate{margin-left:0;padding-left:12px}
-/* PR review state — glyph + PR number per row, tooltip on hover (the .av idiom). */
-.rev{display:inline-flex;align-items:center;gap:5px;flex:none;position:relative;cursor:default}
+/* PR review state — aggregate glyph + PR number per row; detail lives on the
+   issue page's Pull requests block, so the row carries no tooltip. */
+.rev{display:inline-flex;align-items:center;gap:5px;flex:none}
 .rev.draft{opacity:.55}
 .rev .prn{color:var(--faint);font-size:12.5px;font-variant-numeric:tabular-nums}
-.rev[data-tip]:hover::after{content:attr(data-tip);position:absolute;bottom:calc(100% + 7px);
-  right:-2px;background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:6px;
-  padding:3px 8px;font-size:11.5px;font-weight:500;letter-spacing:0;white-space:nowrap;
-  pointer-events:none;z-index:5}
 /* Pull requests block in the Properties panel. */
 .prb{margin:0 0 4px}
 .prb+.prb{margin-top:16px}
@@ -429,7 +422,6 @@ section.active .group-h{padding-left:0}
 .badge.live{border-color:rgba(76,183,130,.35)}
 @media (max-width:700px){
   .content{padding:32px 22px}
-  .idate{display:none}
 }
 .foot{position:fixed;bottom:0;left:0;right:0;z-index:20;padding:10px 0;
   background:var(--bg);border-top:1px solid var(--line);
@@ -798,14 +790,10 @@ def sidebar_html(active_status=None):
 
 
 def issue_row(it, drag=False):
-    """One full-width list row: icons, id, title, updated date pinned right."""
+    """One full-width list row: icons, id, title; PR state and assignee pinned right."""
     attrs = (f' draggable="true" data-id="{html.escape(it["id"], quote=True)}"'
              if drag else "")
     rev = review_row_glyph(_pr_refs(it))
-    # A row showing PR state gives the date's slot to the PR number instead.
-    date = (f'<span class="idate" title="last updated"><span class="k">updated</span> '
-            f'{html.escape(str(it["updated"]))}</span>'
-            if it.get("updated") and not rev else "")
     hit = agent_presence()["issues"].get(it["id"])
     dot = (f'<span class="pulse" title="agent active · {_age_label(hit["age"])}"></span>'
            if hit else "")
@@ -815,7 +803,7 @@ def issue_row(it, drag=False):
         f'{GRIP if drag else ""}'
         f'{status_icon(it["status"])}{priority_icon(it["priority"])}'
         f'<span class="iid">{html.escape(it["id"])}</span>'
-        f'<span class="ititle">{html.escape(it["title"])}</span>{dot}{rev}{disc}{date}</a>'
+        f'<span class="ititle">{html.escape(it["title"])}</span>{dot}{rev}{disc}</a>'
     )
 
 
@@ -1225,16 +1213,6 @@ def _request_logins(info):
             if x and not _is_bot(x)]
 
 
-def _decider_logins(info, want):
-    """Human reviewers whose latest verdict is `want` (e.g. CHANGES_REQUESTED)."""
-    out = []
-    for rv in info.get("latestReviews") or []:
-        login = (rv.get("author") or {}).get("login") or ""
-        if login and not _is_bot(login) and (rv.get("state") or "").upper() == want:
-            out.append(login)
-    return out
-
-
 def _pr_phrase(kind, info):
     """The one-line standing shown under a PR in the panel (and in tooltips)."""
     if kind == "changes":
@@ -1301,38 +1279,11 @@ def review_icon(kind):
     return _svg(_review_inner(kind))
 
 
-def _pr_short(info, kind):
-    """One PR's compact standing for the row tooltip — who it waits on, prefixed
-    with its draft state. The PR number sits in the row itself, so it stays out."""
-    if kind == "pending":
-        reqs = _request_logins(info)
-        phrase = ("review requested: " + ", ".join(reqs)) if reqs else "no reviewers requested"
-    else:
-        phrase = _pr_phrase(kind, info)
-        if kind == "changes":
-            who = _decider_logins(info, "CHANGES_REQUESTED")
-            if who:
-                phrase += " · " + ", ".join(who)
-    if info.get("isDraft") and kind in ("pending", "approved", "changes"):
-        phrase = "draft · " + phrase
-    return phrase
-
-
-def _row_tip(states, win):
-    """The row cluster's hover text — kept short so it stays legible over the
-    neighboring row it necessarily overlaps. Several PRs list number + standing
-    apiece; the visible #number already identifies a lone PR."""
-    if len(states) > 1:
-        return " · ".join(f"#{n} {_pr_phrase(kind, info)}" for n, info, kind, _ in states)
-    _num, info, kind, _chip = win
-    return _pr_short(info, kind)
-
-
 def review_row_glyph(prnums):
-    """The row's PR cluster — aggregate glyph plus the winning PR's number, which
-    takes the updated date's slot (a visible number beats one behind a hover) — or
-    '' when no PR has live data. The winning PR (lowest _PR_RANK) sets the glyph
-    and number, its draft flag the opacity; extra PRs collapse to a +n."""
+    """The row's PR cluster — aggregate glyph plus the winning PR's number — or ''
+    when no PR has live data. The winning PR (lowest _PR_RANK) sets the glyph and
+    number, its draft flag the opacity; extra PRs collapse to a +n. No tooltip:
+    the detail lives in the issue page's Pull requests block."""
     states = [(n, info, *_pr_state(info))
               for n, info in ((n, pr_info(n)) for n in prnums) if info]
     if not states:
@@ -1341,9 +1292,8 @@ def review_row_glyph(prnums):
     num, info, kind, _chip = win
     draft = info.get("isDraft") and kind in ("pending", "approved", "changes")
     cls = "rev draft" if draft else "rev"
-    tip = html.escape(_row_tip(states, win), quote=True)
     more = f" +{len(states) - 1}" if len(states) > 1 else ""
-    return (f'<span class="{cls}" data-tip="{tip}">{review_icon(kind)}'
+    return (f'<span class="{cls}">{review_icon(kind)}'
             f'<span class="prn">#{num}{more}</span></span>')
 
 
