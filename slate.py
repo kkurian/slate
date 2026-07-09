@@ -35,6 +35,7 @@ import sys
 import time
 import threading
 import urllib.parse
+from datetime import date
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -387,11 +388,15 @@ a{color:var(--ink);text-decoration:none}
   background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:6px;
   padding:3px 8px;font-size:11.5px;font-weight:500;letter-spacing:0;white-space:nowrap;
   pointer-events:none;z-index:5}
-/* Right-hand cluster ordering: [pulse][rev][av]. The first present takes the
-   auto-margin that right-aligns the whole cluster; the ones after it reset to
+/* Right-hand cluster ordering: [pulse][idle][rev][av]. The first present takes
+   the auto-margin that right-aligns the whole cluster; the ones after it reset to
    a plain gap. */
-.item .av,.item .rev,.item .pulse{margin-left:auto}
-.item .pulse~.rev,.item .pulse~.av,.item .rev~.av{margin-left:0}
+.item .pulse,.item .idle,.item .rev,.item .av{margin-left:auto}
+.item .pulse~.idle,.item .pulse~.rev,.item .pulse~.av,
+.item .idle~.rev,.item .idle~.av,.item .rev~.av{margin-left:0}
+/* Idle age — a faint Nd on an active-status row untouched for days (see
+   _idle_days); the same quiet register as the PR number, two chars wide. */
+.idle{color:var(--faint);font-size:12.5px;font-variant-numeric:tabular-nums;flex:none}
 /* PR review state — aggregate glyph + PR number per row; detail lives on the
    issue page's Pull requests block, so the row carries no tooltip. */
 .rev{display:inline-flex;align-items:center;gap:5px;flex:none}
@@ -463,7 +468,9 @@ section.active .group-h{padding-left:0}
 .props h3{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--mut);margin:0 0 14px;font-weight:600}
 .props-dl{display:grid;grid-template-columns:82px 1fr;gap:12px;margin:0;font-size:13px;align-items:center}
 .props-dl dt{color:var(--mut)}
-.props-dl dd{margin:0;color:var(--ink);display:flex;align-items:center;gap:7px}
+.props-dl dd{margin:0;color:var(--ink);display:flex;align-items:center;gap:7px;
+  font-variant-numeric:tabular-nums}
+.props-dl dd .src{color:var(--faint);white-space:nowrap}
 .issue-head{margin-bottom:28px}
 .issue-head .crumb{color:var(--faint);font-size:12.5px;font-variant-numeric:tabular-nums}
 .issue-head h1{margin:6px 0 14px;font-size:24px;font-weight:600;letter-spacing:-.012em}
@@ -837,21 +844,45 @@ def sidebar_html(active_status=None):
     return "".join(parts)
 
 
+# Statuses where silence is abnormal, so a days-old `updated:` earns an idle tag.
+IDLE_STATUSES = {"In Progress", "In Review"}
+IDLE_DAYS = 3          # calendar days of silence before the tag appears
+
+
+def _idle_days(updated):
+    """Whole calendar days between an `updated:` YYYY-MM-DD stamp and today's local
+    date — the day-scale age the idle tag and the panel both read. None if the field
+    is missing or unparseable, so a bad date fails soft to no tag / the raw string."""
+    try:
+        t = time.strptime(str(updated).strip(), "%Y-%m-%d")
+    except (ValueError, TypeError):
+        return None
+    return (date.today() - date(t.tm_year, t.tm_mon, t.tm_mday)).days
+
+
 def issue_row(it, drag=False):
-    """One full-width list row: icons, id, title; PR state and assignee pinned right."""
+    """One full-width list row: icons, id, title; idle age, PR state and assignee
+    pinned right."""
     attrs = (f' draggable="true" data-id="{html.escape(it["id"], quote=True)}"'
              if drag else "")
     rev = review_row_glyph(_pr_refs(it))
     hit = agent_presence()["issues"].get(it["id"])
     dot = (f'<span class="pulse" title="agent active · {_age_label(hit["age"])}"></span>'
            if hit else "")
+    # An active-status row gone quiet for IDLE_DAYS grows a faint Nd — unless an
+    # agent is on it now (the pulse), which outranks a day-old stamp.
+    idle = ""
+    if not hit and it["status"] in IDLE_STATUSES:
+        days = _idle_days(it.get("updated"))
+        if days is not None and days >= IDLE_DAYS:
+            idle = f'<span class="idle">{days}d</span>'
     disc = assignee_icon(it.get("assignee", ""))
     return (
         f'<a class="item"{attrs} href="{url_for("issue", it["id"])}">'
         f'{GRIP if drag else ""}'
         f'{status_icon(it["status"])}{priority_icon(it["priority"])}'
         f'<span class="iid">{html.escape(it["id"])}</span>'
-        f'<span class="ititle">{html.escape(it["title"])}</span>{dot}{rev}{disc}</a>'
+        f'<span class="ititle">{html.escape(it["title"])}</span>{dot}{idle}{rev}{disc}</a>'
     )
 
 
@@ -955,6 +986,15 @@ def render_props(meta):
                 v = assignee_icon(str(v)) + html.escape(str(v))
             elif key == "parent":
                 v = render_inline(str(v))
+            elif key == "updated":
+                # Age first (the question), source date faint after (the anchor).
+                # A bad date fails soft to the raw string.
+                days = _idle_days(v)
+                if days is not None:
+                    age = "today" if days <= 0 else f"{days}d ago"
+                    v = f'{age} <span class="src">&middot; {html.escape(str(v))}</span>'
+                else:
+                    v = html.escape(str(v))
             else:
                 v = html.escape(str(v))
             rows.append(f"<dt>{label}</dt><dd>{v}</dd>")
