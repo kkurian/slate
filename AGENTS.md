@@ -74,12 +74,15 @@ What this is and why it matters. Link issues with [[T-2]] wikilinks.
 
 ## Audit
 
-`python3 slate.py doctor` is a read-only check — it never edits a file. It flags
-each **In Review** issue whose every `pr:` has merged, the usual sign of a status
-flip that was missed, and exits nonzero when it finds any. When a review status is
-intentional even with every PR merged — awaiting a human flip, follow-up work, or a
-review happening off GitHub — record `review_hold: <short reason>` in the issue's
-frontmatter; doctor then lists it as held rather than flagging it.
+The board audits itself: the live server flags each **In Review** issue whose every
+`pr:` has merged — the usual sign of a status flip that was missed — with a warning
+chip on the row, a strip atop the In Review view, and a badge on the issue page.
+`python3 slate.py doctor` runs the same check as a one-shot CLI, printing a report
+and exiting nonzero when anything is flagged. Both are read-only — no file is ever
+edited. When a review status is intentional even with every PR merged — awaiting a
+human flip, follow-up work, or a review happening off GitHub — record
+`review_hold: <short reason>` in the issue's frontmatter; the board and doctor then
+show it as held rather than flagging it.
 
 ## Rules
 

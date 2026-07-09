@@ -314,6 +314,7 @@ def list_issues():
                 "assignee": meta.get("assignee", ""),
                 "updated": meta.get("updated", ""),
                 "pr": meta.get("pr"),
+                "review_hold": meta.get("review_hold"),
             })
     items.sort(key=_sort_key)
     return items
@@ -397,6 +398,13 @@ a{color:var(--ink);text-decoration:none}
 /* Idle age — a faint Nd on an active-status row untouched for days (see
    _idle_days); the same quiet register as the PR number, two chars wide. */
 .idle{color:var(--faint);font-size:12.5px;font-variant-numeric:tabular-nums;flex:none}
+/* Doctor chips — the stale-review warning (every linked PR merged while the
+   issue still sits in review) in a warm warning register, and the muted held
+   acknowledgment when review_hold records the state as intentional. */
+.stale{color:#d9973b;font-size:11px;font-weight:500;border:1px solid rgba(217,151,59,.4);
+  border-radius:5px;padding:1px 6px;flex:none;white-space:nowrap;line-height:1.6}
+.hold{color:var(--faint);font-size:11px;font-weight:500;border:1px solid var(--line);
+  border-radius:5px;padding:1px 6px;flex:none;white-space:nowrap;line-height:1.6}
 /* PR review state — aggregate glyph + PR number per row; detail lives on the
    issue page's Pull requests block, so the row carries no tooltip. */
 .rev{display:inline-flex;align-items:center;gap:5px;flex:none}
@@ -468,6 +476,12 @@ section.active .group-h{padding-left:0}
 .agents-live{display:flex;align-items:center;gap:8px;padding:6px 8px;margin-top:12px;
   font-size:12px;color:var(--mut)}
 .badge.live{border-color:rgba(76,183,130,.35)}
+.badge.stale{color:#d9973b;border-color:rgba(217,151,59,.4)}
+.badge.hold{color:var(--mut);border-color:var(--line)}
+/* Doctor strip — the review view's lead finding: which issues here have every
+   PR merged. One quiet line in the warning register, above the list. */
+.doctor-strip{margin:10px 0 2px;padding:7px 10px;font-size:12.5px;color:#d9973b;
+  border:1px solid rgba(217,151,59,.35);border-radius:7px;background:rgba(217,151,59,.06)}
 @media (max-width:700px){
   .content{padding:32px 22px}
 }
@@ -889,13 +903,24 @@ def issue_row(it, drag=False):
         days = _idle_days(it.get("updated"))
         if days is not None and days >= IDLE_DAYS:
             idle = f'<span class="idle">{days}d</span>'
+    # Doctor verdict, from the same cached PR state the glyph just read — a
+    # reviewing issue whose every PR has merged wears a warning chip; a recorded
+    # review_hold wears a muted one; indeterminate stays off the row.
+    doc = ""
+    verdict = review_verdict(it)
+    if verdict and verdict[0] == "stale":
+        doc = ('<span class="stale" title="every linked PR has merged — '
+               'the status may need a flip">all PRs merged</span>')
+    elif verdict and verdict[0] == "held":
+        doc = (f'<span class="hold" title="review hold: '
+               f'{html.escape(verdict[2], quote=True)}">held</span>')
     disc = assignee_icon(it.get("assignee", ""))
     return (
         f'<a class="item"{attrs} href="{url_for("issue", it["id"])}">'
         f'{GRIP if drag else ""}'
         f'{status_icon(it["status"])}{priority_icon(it["priority"])}'
         f'<span class="iid">{html.escape(it["id"])}</span>'
-        f'<span class="ititle">{html.escape(it["title"])}</span>{dot}{idle}{rev}{disc}</a>'
+        f'<span class="ititle">{html.escape(it["title"])}</span>{dot}{idle}{doc}{rev}{disc}</a>'
     )
 
 
@@ -915,6 +940,18 @@ def render_status_page(status, live=True):
     issues = [it for it in list_issues() if it["status"] == status]
     head = (f'<div class="view-head"><h1>{status_icon(status)}{html.escape(status)}'
             f'<span class="vcount">{len(issues)}</span></h1></div>')
+    # A review view leads with the doctor's finding when it has one: the issues
+    # here whose every PR has merged, named up front so the smell is visible the
+    # moment the view opens. Held and indeterminate issues stay out of the strip.
+    if status in REVIEW_STATUSES:
+        stale = [it for it in issues
+                 if (v := review_verdict(it)) and v[0] == "stale"]
+        if stale:
+            ids = ", ".join(html.escape(it["id"]) for it in stale)
+            n = len(stale)
+            noun = "issue has" if n == 1 else "issues have"
+            head += (f'<div class="doctor-strip">{n} {noun} every linked PR '
+                     f'merged — likely awaiting a status flip: {ids}</div>')
     if not issues:
         return page(f"{status} · {project_title()}", sidebar_html(status),
                     head + '<p class="empty">No issues.</p>', live=live)
@@ -1060,12 +1097,23 @@ def render_issue_page(p, meta, body, live=True):
     # editing the file, never from here.
     wave_badge = (f'<span class="badge">{waves_icon()}Wave {html.escape(str(wave))}</span>'
                   if wave else "")
+    # Doctor verdict on the issue itself — the warning next to the very status
+    # chip that needs the flip. Held shows its recorded reason, muted.
+    doctor_badge = ""
+    if live:
+        verdict = review_verdict(meta)
+        if verdict and verdict[0] == "stale":
+            doctor_badge = ('<span class="badge stale">all PRs merged — '
+                            'status may need a flip</span>')
+        elif verdict and verdict[0] == "held":
+            doctor_badge = (f'<span class="badge hold">review hold &middot; '
+                            f'{html.escape(verdict[2])}</span>')
     head = (
         f'<div class="issue-head"><div class="crumb">{html.escape(iid)}</div>'
         f"<h1>{html.escape(title)}</h1>"
         f'<div class="badges">{status_badge}'
         f'<span class="badge">{priority_icon(pri)}{html.escape(pri)}</span>'
-        f'{wave_badge}{live_badge}</div></div>'
+        f'{wave_badge}{doctor_badge}{live_badge}</div></div>'
     )
     main = '<article class="md issue">' + head + render_blocks(body) + "</article>"
     return page(f"{iid} · {title}", sidebar_html(status), main, props=render_props(meta), live=live)
@@ -1211,13 +1259,15 @@ def _age_label(s):
 # static builds, and fail-soft — no gh binary, not authed, offline, or an unknown
 # PR number simply drops that PR's data and the row renders as if `pr:` were unset.
 
-PR_TTL = 120           # seconds a PR's fetched state is trusted before a refetch
+PR_TTL = 120           # seconds a PR's fetched state is trusted before a refresh
 PR_TIMEOUT = 8         # seconds we wait on gh before giving up on a PR
 PR_FIELDS = "number,title,url,isDraft,state,reviewDecision,reviewRequests,latestReviews"
 # Worst-active-state wins the row aggregate: changes outranks pending outranks
 # approved; the done states (merged/closed) only surface when nothing is active.
 _PR_RANK = {"changes": 0, "pending": 1, "approved": 2, "merged": 3, "closed": 4}
 _PR_CACHE = {}         # num(str) -> {"at": float, "val": dict|None}
+_PR_FETCHING = set()   # nums with a background refresh in flight
+_PR_LOCK = threading.Lock()
 
 
 def _pr_refs(item):
@@ -1253,19 +1303,39 @@ def _fetch_pr(num):
         return None
 
 
+def _refresh_pr(num):
+    """Background body of one PR refresh: the gh round-trip, then the cache write.
+    A failure is cached too (as None), so a missing gh or a bad number can't make
+    every pass spawn the subprocess again until the TTL turns over."""
+    val = _fetch_pr(num)
+    with _PR_LOCK:
+        _PR_CACHE[num] = {"at": time.time(), "val": val}
+        _PR_FETCHING.discard(num)
+
+
 def pr_info(num):
-    """Cached gh record for one PR number, ~120s TTL. None (and thus a silently
-    absent feature for that PR) on any failure; live mode only. A failure is cached
-    too, so a missing gh or bad number can't make every render shell out again."""
+    """Last-known gh record for one PR number — never blocks the caller. A fresh
+    entry (~120s TTL) answers directly; a missing or expired one answers with
+    whatever is cached (None on first sight) while a daemon thread refreshes it,
+    one thread per PR so a multi-PR issue refreshes in parallel. gh lives off the
+    request path entirely: the watcher's _pr_signature pass notices each landed
+    refresh and live-reloads open pages over SSE, so stale data self-corrects
+    within seconds. Live mode only; None on any failure, same fail-soft terms as
+    before."""
     if MODE != "live":
         return None
     num = str(num).strip()
     now = time.time()
-    ent = _PR_CACHE.get(num)
-    if ent and now - ent["at"] < PR_TTL:
-        return ent["val"]
-    _PR_CACHE[num] = {"at": now, "val": _fetch_pr(num)}
-    return _PR_CACHE[num]["val"]
+    with _PR_LOCK:
+        ent = _PR_CACHE.get(num)
+        if ent and now - ent["at"] < PR_TTL:
+            return ent["val"]
+        stale = ent["val"] if ent else None
+        if num in _PR_FETCHING:
+            return stale
+        _PR_FETCHING.add(num)
+    threading.Thread(target=_refresh_pr, args=(num,), daemon=True).start()
+    return stale
 
 
 def _is_bot(login):
@@ -1390,17 +1460,68 @@ def review_row_glyph(prnums):
     when no PR has live data. The winning PR (lowest _PR_RANK) sets the glyph and
     number, its draft flag the opacity; extra PRs collapse to a +n. No tooltip:
     the detail lives in the issue page's Pull requests block."""
-    states = [(n, info, *_pr_state(info))
+    states = [(n, info, _pr_state(info)[0])
               for n, info in ((n, pr_info(n)) for n in prnums) if info]
     if not states:
         return ""
-    win = min(states, key=lambda s: _PR_RANK.get(s[2], 9))
-    num, info, kind, _chip = win
+    num, info, kind = min(states, key=lambda s: _PR_RANK.get(s[2], 9))
     draft = info.get("isDraft") and kind in ("pending", "approved", "changes")
     cls = "rev draft" if draft else "rev"
     more = f" +{len(states) - 1}" if len(states) > 1 else ""
     return (f'<span class="{cls}">{review_icon(kind)}'
             f'<span class="prn">#{num}{more}</span></span>')
+
+
+# Doctor verdicts — the stale-review check the served board and the doctor CLI
+# share. An issue sitting in a review status while every pull request it names
+# has merged is usually a missed status flip: the work landed but the issue
+# never left review. The `pr:` frontmatter is the authoritative PR list (numbers
+# in body prose are out of scope — a task citing a merged precedent PR is not
+# the same as its own work having merged), and `review_hold:` records the reason
+# when the state is intentional: awaiting a human flip, follow-up work still
+# owed, or a review happening off GitHub.
+REVIEW_STATUSES = {"In Review"}
+
+
+def _pr_merge_partition(refs, fetch):
+    """Split PR refs into (merged, unmerged, unknown) via fetch — pr_info for the
+    served board (cached, the same data the review glyphs read), _fetch_pr for a
+    one-shot CLI run. 'unmerged' is anything still open or closed-without-merge;
+    'unknown' a PR gh could not resolve, so the caller can decline to assert
+    'all merged' rather than guess."""
+    merged, unmerged, unknown = [], [], []
+    for n in refs:
+        info = fetch(n)
+        if info is None:
+            unknown.append(n)
+        elif _pr_state(info)[0] == "merged":
+            merged.append(n)
+        else:
+            unmerged.append(n)
+    return merged, unmerged, unknown
+
+
+def review_verdict(item, fetch=pr_info):
+    """Classify one issue: ('stale', merged, None) when it sits in a review status
+    with every named PR merged and no hold recorded; ('held', merged, reason) when
+    `review_hold:` acknowledges that state; ('indeterminate', merged, unknown) when
+    some PRs resolved merged but others couldn't be fetched; None otherwise — not
+    in review, no PRs, real review work remaining, or no merge signal at all (the
+    fail-soft default, so a dead gh or a static build stays silent)."""
+    if item.get("status") not in REVIEW_STATUSES:
+        return None
+    refs = _pr_refs(item)
+    if not refs:
+        return None
+    merged, unmerged, unknown = _pr_merge_partition(refs, fetch)
+    if unmerged or not merged:
+        return None
+    if unknown:
+        return ("indeterminate", merged, unknown)
+    hold = item.get("review_hold")
+    if hold:
+        return ("held", merged, str(hold))
+    return ("stale", merged, None)
 
 
 def render_pr_block(prnums):
@@ -1968,63 +2089,30 @@ def install(target=None):
 
 
 # --------------------------------------------------------------------------- #
-# doctor — a read-only board audit that surfaces stale states, never edits
+# doctor — the stale-review audit as a one-shot CLI, sharing review_verdict
 # --------------------------------------------------------------------------- #
-# One check today: an issue sitting in a review status while every pull request
-# it names has already merged. That pairing is usually a missed status flip —
-# the work landed but the issue was never moved out of review. doctor reports
-# the candidates and exits nonzero when it finds any, so it slots into a check
-# run; it never rewrites a file. Same `pr:` frontmatter the board reads for its
-# review glyphs is the authoritative PR list here — numbers mentioned only in
-# body prose are deliberately out of scope, since a task naming a merged
-# precedent PR is not the same as that task's own work having merged.
-#
-# A review status can be intentional even with every PR merged — waiting on a
-# human to flip it, follow-up work still owed, or a review happening off GitHub.
-# An issue may carry a `review_hold:` frontmatter value (a short reason) to
-# acknowledge that: doctor then lists it in a muted, still-visible held section
-# rather than flagging it, and does not count it toward the failing exit status.
-
-REVIEW_STATUSES = {"In Review"}
-
-
-def _pr_merge_partition(refs):
-    """Split PR refs into (merged, unmerged, unknown) by one gh fetch each.
-    'unmerged' is anything still open or closed-without-merge; 'unknown' is a PR
-    gh could not resolve — no binary, offline, or a bad number — so the caller
-    can decline to assert 'all merged' rather than guess."""
-    merged, unmerged, unknown = [], [], []
-    for n in refs:
-        info = _fetch_pr(n)
-        if info is None:
-            unknown.append(n)
-            continue
-        kind, _chip = _pr_state(info)
-        (merged if kind == "merged" else unmerged).append(n)
-    return merged, unmerged, unknown
+# The served board evaluates the same check on every render (row chips, the
+# review view's strip, the issue-page badge) from cached PR state; this is the
+# scriptable surface — a fresh gh fetch per PR, a printed report, and a nonzero
+# exit when anything is flagged, so it slots into a check run. Read-only, like
+# the board: doctor never rewrites a file.
 
 
 def doctor():
     """Audit the board and print findings; return an exit status (1 if anything
-    is flagged, else 0). Read-only — no file is ever written."""
-    global MODE
-    MODE = "live"                       # doctor always talks to gh
+    is flagged, else 0)."""
     flagged, held, indeterminate = [], [], []
     for it in list_issues():
-        if it["status"] not in REVIEW_STATUSES:
+        verdict = review_verdict(it, fetch=_fetch_pr)
+        if not verdict:
             continue
-        refs = _pr_refs(it)
-        if not refs:
-            continue
-        merged, unmerged, unknown = _pr_merge_partition(refs)
-        if unmerged or not merged:
-            continue                    # still real review work, or nothing resolved merged
-        if unknown:
-            indeterminate.append((it, merged, unknown))
-            continue
-        res = find_issue(it["id"])
-        hold = (res[1].get("review_hold") if res else None)
-        (held if hold else flagged).append((it, merged, hold))
+        kind, merged, extra = verdict
+        if kind == "stale":
+            flagged.append((it, merged))
+        elif kind == "held":
+            held.append((it, merged, extra))
+        else:
+            indeterminate.append((it, merged, extra))
     _print_doctor(flagged, held, indeterminate)
     return 1 if flagged else 0
 
@@ -2042,7 +2130,7 @@ def _print_doctor(flagged, held, indeterminate):
     if flagged:
         print(f"slate doctor: {len(flagged)} issue(s) in a review status with every "
               f"PR merged\n")
-        for it, merged, _hold in flagged:
+        for it, merged in flagged:
             print(_doctor_entry(it, merged))
         print("\n  Likely stale: the work merged but the issue never left review. Move")
         print("  each to Done (or the status that fits), or add `review_hold: <reason>`")
