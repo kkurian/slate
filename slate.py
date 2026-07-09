@@ -1338,6 +1338,17 @@ def pr_info(num):
     return stale
 
 
+def pr_pending(num):
+    """True while a PR's first fetch is still in flight — nothing has ever landed
+    for it, so its state is unknown rather than absent. Distinct from a landed
+    failure (bad number, gh missing), which is cached as None and stays silently
+    dropped, the same fail-soft terms as always. Live mode only."""
+    if MODE != "live":
+        return False
+    with _PR_LOCK:
+        return str(num).strip() not in _PR_CACHE
+
+
 def _is_bot(login):
     """A review from a bot (Copilot, or any [bot] account) — excluded from the row
     aggregate and listed muted in the panel."""
@@ -1446,6 +1457,12 @@ def _review_inner(kind):
         return ('<circle cx="8" cy="8" r="6.5" fill="#e0655f"/>'
                 '<path d="M5.6 5.6 L10.4 10.4 M10.4 5.6 L5.6 10.4" stroke="#fff" '
                 'stroke-width="1.5" stroke-linecap="round"/>')
+    if kind == "unknown":
+        # State not yet known — a first fetch still in flight. The dashed ring
+        # the degraded PRs view already speaks: an outline that hasn't resolved,
+        # quieter than pending's dotted ring, resolving on the next repaint.
+        return ('<circle cx="8" cy="8" r="5.4" fill="none" stroke="#5c5f66" '
+                'stroke-width="1.5" stroke-dasharray="1.6 1.8"/>')
     # pending: a faint hollow ring with a center dot
     return ('<circle cx="8" cy="8" r="5.4" fill="none" stroke="#5c5f66" stroke-width="1.5"/>'
             '<circle cx="8" cy="8" r="1.5" fill="#5c5f66"/>')
@@ -1458,12 +1475,19 @@ def review_icon(kind):
 def review_row_glyph(prnums):
     """The row's PR cluster — aggregate glyph plus the winning PR's number — or ''
     when no PR has live data. The winning PR (lowest _PR_RANK) sets the glyph and
-    number, its draft flag the opacity; extra PRs collapse to a +n. No tooltip:
-    the detail lives in the issue page's Pull requests block."""
-    states = [(n, info, _pr_state(info)[0])
-              for n, info in ((n, pr_info(n)) for n in prnums) if info]
+    number, its draft flag the opacity; extra PRs collapse to a +n. While nothing
+    has resolved yet but a first fetch is in flight, the cluster shows the dashed
+    unknown ring instead of vanishing — the next repaint trades it for the real
+    state. No tooltip: the detail lives in the issue page's Pull requests block."""
+    infos = [(n, pr_info(n)) for n in prnums]
+    states = [(n, info, _pr_state(info)[0]) for n, info in infos if info]
     if not states:
-        return ""
+        checking = [n for n, info in infos if info is None and pr_pending(n)]
+        if not checking:
+            return ""
+        more = f" +{len(checking) - 1}" if len(checking) > 1 else ""
+        return (f'<span class="rev">{review_icon("unknown")}'
+                f'<span class="prn">#{checking[0]}{more}</span></span>')
     num, info, kind = min(states, key=lambda s: _PR_RANK.get(s[2], 9))
     draft = info.get("isDraft") and kind in ("pending", "approved", "changes")
     cls = "rev draft" if draft else "rev"
@@ -1532,11 +1556,14 @@ def render_pr_block(prnums):
     entry collapses to its one dimmed line. A standing phrase survives in just
     one place — a pending PR with no human reviewer in play says so, because
     there the absence is the only news; every other standing is already spoken
-    by the glyph and chip. Empty when no PR has live data (so static builds and
-    failures show nothing)."""
-    infos = [(n, pr_info(n)) for n in prnums]
-    infos = [(n, info) for n, info in infos if info]
-    if not infos:
+    by the glyph and chip. A PR whose first fetch is still in flight holds its
+    place with the dashed unknown ring and a 'checking' chip rather than being
+    absent. Empty when no PR has data or a fetch in flight (so static builds and
+    landed failures show nothing)."""
+    fetched = [(n, pr_info(n)) for n in prnums]
+    infos = [(n, info) for n, info in fetched if info]
+    checking = [n for n, info in fetched if info is None and pr_pending(n)]
+    if not infos and not checking:
         return ""
     parts = ['<h3 style="margin-top:26px">Pull requests</h3>']
     for num, info in infos:
@@ -1560,6 +1587,14 @@ def render_pr_block(prnums):
                                f'<span class="who">{html.escape(login)}</span>{age_html}</div>')
                 parts.append(f'<div class="rvs">{"".join(rvs)}</div>')
         parts.append('</div>')
+    for num in checking:
+        url = _pr_github_url(num)
+        label = f"#{num}"
+        link = (f'<a href="{html.escape(url, quote=True)}" target="_blank" '
+                f'rel="noopener">{label}</a>' if url else label)
+        parts.append(f'<div class="prb done"><div class="pr-line">'
+                     f'{review_icon("unknown")}{link}'
+                     f'<span class="mini">checking</span></div></div>')
     ages = [int(time.time() - _PR_CACHE[n]["at"]) for n, _ in infos if n in _PR_CACHE]
     if ages:
         parts.append(f'<div class="checked">checked {_age_label(min(ages))}</div>')
@@ -1697,8 +1732,7 @@ def _pr_degraded_row(num, owners):
     """A degraded row (gh down): a dashed unknown ring, the PR number (linked to
     GitHub only when the repo is known, plain text otherwise), the owning issues,
     and the first owner's issue title standing in for the PR title."""
-    ring = _svg('<circle cx="8" cy="8" r="5.4" fill="none" stroke="#5c5f66" '
-                'stroke-width="1.5" stroke-dasharray="1.6 1.8"/>')
+    ring = review_icon("unknown")
     url = _pr_github_url(num)
     label = f"#{num}"
     numhtml = (f'<a class="prn" href="{html.escape(url, quote=True)}" target="_blank" '
@@ -1720,13 +1754,17 @@ def render_prs_page(live=True):
     order, owners = _distinct_prs(issues)
     infos = {n: pr_info(n) for n in order}
     live_nums = [n for n in order if infos[n]]
+    checking = [n for n in order if infos[n] is None and pr_pending(n)]
     head = (f'<div class="view-head"><h1>{prs_icon()}Pull requests'
             f'<span class="vcount">{_pr_open_count(issues)}</span></h1></div>')
-    if not live_nums:                        # gh down / static build → degraded form
-        notice = ('<div class="notice">GitHub state unavailable — listing the '
-                  '<code>pr:</code> links from the issue files. Each number still '
-                  'links to GitHub; standings and reviewers return when '
-                  '<code>gh</code> does.</div>')
+    if not live_nums:                        # gh down / first fetch / static build
+        notice = (('<div class="notice">Checking GitHub — first fetch in flight. '
+                   'Standings and reviewers appear as it lands.</div>')
+                  if checking else
+                  ('<div class="notice">GitHub state unavailable — listing the '
+                   '<code>pr:</code> links from the issue files. Each number still '
+                   'links to GitHub; standings and reviewers return when '
+                   '<code>gh</code> does.</div>'))
         rows = "".join(_pr_degraded_row(n, owners[n])
                        for n in sorted(order, key=_pr_num_key, reverse=True))
         body = f'<div class="prv">{notice}<section>{rows}</section></div>'
@@ -1743,6 +1781,11 @@ def render_prs_page(live=True):
         rows = "".join(_pr_ledger_row(n, infos[n], owners[n]) for n in nums)
         parts.append(f'<section><div class="group-h">{review_icon(kind)}{label}'
                      f'<span class="gcount">{len(nums)}</span></div>{rows}</section>')
+    if checking:                             # first fetches in flight — hold a place
+        rows = "".join(_pr_degraded_row(n, owners[n])
+                       for n in sorted(checking, key=_pr_num_key, reverse=True))
+        parts.append(f'<section><div class="group-h">{review_icon("unknown")}Checking'
+                     f'<span class="gcount">{len(checking)}</span></div>{rows}</section>')
     ages = [int(time.time() - _PR_CACHE[n]["at"]) for n in live_nums if n in _PR_CACHE]
     if ages:
         parts.append(f'<div class="checked">checked {_age_label(min(ages))}</div>')
@@ -1843,7 +1886,11 @@ def _restart():
 
 def watch():
     mtimes, init, tick, agents_key, agents_beat = {}, False, 0, None, 0.0
-    pr_key = None
+    # Seed the PR baseline before the loop: this both kicks off the background
+    # fetches at server start (warming the cache ahead of the first page load)
+    # and anchors the signature at its unknown state, so the very first landed
+    # fetch reads as a change and repaints the unknown rings away.
+    pr_key = _pr_signature()
     while True:
         snap = {}
         for p in [SELF] + _watched_files():
@@ -1874,11 +1921,13 @@ def watch():
                 STATE["version"] += 1
                 agents_beat = now
             agents_key = key
-        if tick % 20 == 0:
-            # PR review state. Cheap cache reads most ticks; a real gh refresh only
-            # every PR_TTL. Re-render open pages when a PR's standing actually moves.
+        if tick % 4 == 0:
+            # PR review state. Pure cache reads — pr_info never blocks, and only
+            # enqueues a background refresh once per TTL — so this can ride the
+            # 2s cadence: a landed fetch repaints open pages (trading unknown
+            # rings for real glyphs) within seconds of arriving.
             key = _pr_signature()
-            if pr_key is not None and key != pr_key:
+            if key != pr_key:
                 STATE["changed"] = "reviews"
                 STATE["version"] += 1
             pr_key = key
