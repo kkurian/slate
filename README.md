@@ -121,6 +121,7 @@ python3 slate.py build out  # standalone HTML in ./out/ — no server needed, no
 - **Live, everywhere.** `project.md` is the overview, each status a view, each issue a page. Navigation swaps in place; a file edited on disk updates the open page and holds your scroll. Even `slate.py` reloads itself: edit it and the server re-execs — a syntax error leaves the old server running until you fix it.
 - **Waves.** Give an issue a `wave:` — an integer or a short label — and a **Waves** dashboard appears in the sidebar, counting the distinct waves. Each wave shows its progress there as a fractional pie and a `done/total` count, with the issues in flight first and a trailing *No wave* section so nothing is hidden (numeric waves first ascending, then labels alphabetical). Any status view whose issues carry waves groups into `Wave 1`, `Wave 2`, … sections too — dragging still reorders within a section. Set no waves and it all stays away: a board without waves renders exactly as before. Display-only, like every other view.
 - **Agent presence.** The viewer watches Claude Code's transcripts (`~/.claude/projects/<project-slug>/`, workflow subagents included; override with `SLATE_TRANSCRIPTS`). A transcript written in the last 90 seconds is a live agent: the sidebar counts agents — and workers, when a workflow fans out — an issue pulses while its file is the target of a tool call, and its page shows an "agent working" badge. Presence is ephemeral: never written to the markdown, absent from static builds, a hint rather than an audit log.
+- **PR review state.** Give an issue a `pr:` — a number or a list — and the live server asks `gh` where each pull request's review stands, showing one aggregate glyph on the row (review pending, approved, changes requested, or merged) and a per-reviewer breakdown in the issue page's Properties panel. It runs `gh` against the repo `slate.py` sits in; set `SLATE_REPO=owner/repo` to point elsewhere. Like presence, it is cached, display-only, never written to the markdown, absent from static builds, and fails soft — no `gh`, offline, or an unknown number simply drops that PR and the rest renders unchanged.
 - **Two write paths, no more.** Drag a row within a status view to reorder it (Esc cancels), or click the status chip on an issue page to move it. Each rewrites only the `order:` / `status:` frontmatter of the issues involved.
 - **Knobs.** `SLATE_PORT` sets the port; drag the sidebar's edge to resize it.
 
@@ -153,6 +154,7 @@ What this is and why it matters. Link issues with [[T-2]] wikilinks.
 | `priority` | Urgent · High · Medium · Low · No priority | the priority marks |
 | `order` | integer, optional | position within the status — set by dragging, or by hand |
 | `wave` | integer or text, optional | groups the issue in the Waves dashboard and in status views |
+| `pr` | number or list, optional | shows the linked pull request(s)' review state on the row and issue page |
 
 Link issues with `[[T-2]]` wikilinks. The sidebar brand shows the `title` from your `project.md`, so slate reads as native to the project it sits in.
 

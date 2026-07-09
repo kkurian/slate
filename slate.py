@@ -22,12 +22,15 @@ Usage:
 
 Env:
     SLATE_PORT   override the port (default 8787)
+    SLATE_REPO   owner/repo the `pr:` numbers reference (default: ROOT's git origin)
 """
 
+import calendar
 import html
 import json
 import os
 import re
+import subprocess
 import sys
 import time
 import threading
@@ -305,6 +308,7 @@ def list_issues():
                 "wave": meta.get("wave"),
                 "assignee": meta.get("assignee", ""),
                 "updated": meta.get("updated", ""),
+                "pr": meta.get("pr"),
             })
     items.sort(key=_sort_key)
     return items
@@ -382,8 +386,32 @@ a{color:var(--ink);text-decoration:none}
   background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:6px;
   padding:3px 8px;font-size:11.5px;font-weight:500;letter-spacing:0;white-space:nowrap;
   pointer-events:none;z-index:5}
-.item .av{margin-left:auto}
-.item .av+.idate{margin-left:0;padding-left:12px}
+/* Right-hand cluster ordering: [pulse][rev][av][date]. The first present of
+   pulse/rev/av takes the auto-margin that right-aligns the whole cluster; the
+   ones after it (and the date after any of them) reset to a plain gap. */
+.item .av,.item .rev,.item .pulse{margin-left:auto}
+.item .pulse~.rev,.item .pulse~.av,.item .rev~.av{margin-left:0}
+.item .av+.idate,.item .rev+.idate,.item .pulse+.idate{margin-left:0;padding-left:12px}
+/* PR review state — one aggregate glyph per row, tooltip on hover (the .av idiom). */
+.rev{display:inline-flex;flex:none;position:relative;cursor:default}
+.rev.draft{opacity:.55}
+.rev[data-tip]:hover::after{content:attr(data-tip);position:absolute;bottom:calc(100% + 7px);
+  right:-2px;background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:6px;
+  padding:3px 8px;font-size:11.5px;font-weight:500;letter-spacing:0;white-space:nowrap;
+  pointer-events:none;z-index:5}
+/* Pull requests block in the Properties panel. */
+.prb{margin:0 0 4px}
+.prb+.prb{margin-top:16px}
+.pr-line{display:flex;align-items:center;gap:7px;font-size:13px}
+.pr-line a{color:var(--ink);font-variant-numeric:tabular-nums}
+.pr-line a:hover{color:var(--accent)}
+.mini{font-size:10.5px;font-weight:500;padding:1px 6px;border:1px solid rgba(255,255,255,.09);
+  border-radius:5px;color:var(--mut);line-height:1.5}
+.pr-sub{margin:1px 0 6px 23px;font-size:12px;color:var(--mut)}
+.rvr{display:flex;align-items:center;gap:7px;padding:2.5px 0 2.5px 2px;font-size:12.5px;color:#c4c6cc}
+.rvr .age{margin-left:auto;color:var(--faint);font-size:11.5px;font-variant-numeric:tabular-nums}
+.rvr.bot{opacity:.5}
+.checked{margin-top:12px;font-size:11px;color:var(--faint)}
 .content{padding:42px 60px 64px;max-width:860px;display:flex;flex-direction:column}
 .view-head h1{display:flex;align-items:center;gap:9px;margin:0 0 18px;
   font-size:18px;font-weight:600;letter-spacing:-.01em}
@@ -778,13 +806,14 @@ def issue_row(it, drag=False):
     hit = agent_presence()["issues"].get(it["id"])
     dot = (f'<span class="pulse" title="agent active · {_age_label(hit["age"])}"></span>'
            if hit else "")
+    rev = review_row_glyph(_pr_refs(it))
     disc = assignee_icon(it.get("assignee", ""))
     return (
         f'<a class="item"{attrs} href="{url_for("issue", it["id"])}">'
         f'{GRIP if drag else ""}'
         f'{status_icon(it["status"])}{priority_icon(it["priority"])}'
         f'<span class="iid">{html.escape(it["id"])}</span>'
-        f'<span class="ititle">{html.escape(it["title"])}</span>{dot}{disc}{date}</a>'
+        f'<span class="ititle">{html.escape(it["title"])}</span>{dot}{rev}{disc}{date}</a>'
     )
 
 
@@ -892,6 +921,7 @@ def render_props(meta):
                 v = html.escape(str(v))
             rows.append(f"<dt>{label}</dt><dd>{v}</dd>")
     rows.append("</dl>")
+    rows.append(render_pr_block(_pr_refs(meta)))
     return "".join(rows)
 
 
@@ -1081,6 +1111,274 @@ def _age_label(s):
 
 
 # --------------------------------------------------------------------------- #
+# PR review state (read-only) — where each issue's pull request review stands
+# --------------------------------------------------------------------------- #
+# An issue may carry a `pr:` frontmatter field — a bare number or a list — naming
+# the host repo's pull request(s). We ask `gh` for each PR's review state and show
+# an aggregate glyph on the row plus per-reviewer detail in the Properties panel.
+# Same terms as presence: cached, display-only, never written back, absent from
+# static builds, and fail-soft — no gh binary, not authed, offline, or an unknown
+# PR number simply drops that PR's data and the row renders as if `pr:` were unset.
+
+PR_TTL = 120           # seconds a PR's fetched state is trusted before a refetch
+PR_TIMEOUT = 8         # seconds we wait on gh before giving up on a PR
+PR_FIELDS = "number,title,url,isDraft,state,reviewDecision,reviewRequests,latestReviews"
+# Worst-active-state wins the row aggregate: changes outranks pending outranks
+# approved; the done states (merged/closed) only surface when nothing is active.
+_PR_RANK = {"changes": 0, "pending": 1, "approved": 2, "merged": 3, "closed": 4}
+_PR_CACHE = {}         # num(str) -> {"at": float, "val": dict|None}
+
+
+def _pr_refs(item):
+    """PR number strings from an issue's `pr:` field (scalar or list) → []."""
+    v = item.get("pr")
+    if not v:
+        return []
+    values = v if isinstance(v, list) else [v]
+    return [s for s in (str(x).strip() for x in values) if s]
+
+
+def _gh_repo_args():
+    """How to point gh at the host repo. SLATE_REPO (owner/repo) wins as an
+    explicit `-R` and runs from anywhere; otherwise we run from ROOT's git root so
+    gh resolves the origin — that repo is the one the bare PR numbers reference."""
+    repo = os.environ.get("SLATE_REPO")
+    if repo:
+        return ["-R", repo], None
+    return [], str(_git_root(ROOT) or ROOT)
+
+
+def _fetch_pr(num):
+    """One gh call for one PR → its JSON record, or None on any failure."""
+    args, cwd = _gh_repo_args()
+    try:
+        proc = subprocess.run(
+            ["gh", "pr", "view", str(num), *args, "--json", PR_FIELDS],
+            cwd=cwd, capture_output=True, text=True, timeout=PR_TIMEOUT)
+        if proc.returncode != 0:
+            return None
+        return json.loads(proc.stdout)
+    except Exception:
+        return None
+
+
+def pr_info(num):
+    """Cached gh record for one PR number, ~120s TTL. None (and thus a silently
+    absent feature for that PR) on any failure; live mode only. A failure is cached
+    too, so a missing gh or bad number can't make every render shell out again."""
+    if MODE != "live":
+        return None
+    num = str(num).strip()
+    now = time.time()
+    ent = _PR_CACHE.get(num)
+    if ent and now - ent["at"] < PR_TTL:
+        return ent["val"]
+    _PR_CACHE[num] = {"at": now, "val": _fetch_pr(num)}
+    return _PR_CACHE[num]["val"]
+
+
+def _is_bot(login):
+    """A review from a bot (Copilot, or any [bot] account) — excluded from the row
+    aggregate and listed muted in the panel."""
+    s = (login or "").lower()
+    return "copilot" in s or s.endswith("[bot]")
+
+
+def _req_login(req):
+    """A reviewRequests entry names a user (login) or a team (name/slug)."""
+    if not isinstance(req, dict):
+        return ""
+    return req.get("login") or req.get("name") or req.get("slug") or ""
+
+
+def _short_age(iso):
+    """Compact relative age of an ISO-8601 UTC timestamp: '5m', '2h', '3d'."""
+    try:
+        secs = int(time.time() - calendar.timegm(time.strptime(iso, "%Y-%m-%dT%H:%M:%SZ")))
+    except (ValueError, TypeError):
+        return ""
+    if secs < 3600:
+        return f"{max(secs // 60, 0)}m"
+    if secs < 86400:
+        return f"{secs // 3600}h"
+    return f"{secs // 86400}d"
+
+
+def _pr_state(info):
+    """Reduce a gh record to (kind, chip): kind is the display state
+    (pending/approved/changes/merged/closed), chip the ready/draft/merged label."""
+    state = (info.get("state") or "").upper()
+    if state == "MERGED":
+        return "merged", "merged"
+    if state == "CLOSED":
+        return "closed", "closed"
+    decision = (info.get("reviewDecision") or "").upper()
+    kind = {"APPROVED": "approved", "CHANGES_REQUESTED": "changes"}.get(decision, "pending")
+    return kind, ("draft" if info.get("isDraft") else "ready")
+
+
+def _request_logins(info):
+    """Human reviewers asked but not yet heard from — for the pending tooltip."""
+    return [x for x in (_req_login(r) for r in info.get("reviewRequests") or [])
+            if x and not _is_bot(x)]
+
+
+def _decider_logins(info, want):
+    """Human reviewers whose latest verdict is `want` (e.g. CHANGES_REQUESTED)."""
+    out = []
+    for rv in info.get("latestReviews") or []:
+        login = (rv.get("author") or {}).get("login") or ""
+        if login and not _is_bot(login) and (rv.get("state") or "").upper() == want:
+            out.append(login)
+    return out
+
+
+def _pr_phrase(kind, info):
+    """The one-line standing shown under a PR in the panel (and in tooltips)."""
+    if kind == "changes":
+        return "changes requested"
+    if kind == "approved":
+        return "approved"
+    if kind == "merged":
+        return "merged"
+    if kind == "closed":
+        return "closed"
+    return "review requested" if _request_logins(info) else "no reviewers requested"
+
+
+def _pr_reviewers(info):
+    """[(login, disp, age, is_bot)] for the panel — each reviewer's latest verdict
+    first (disp in approved/changes/commented), then still-pending requests. Bots
+    sort last so they list muted beneath the humans."""
+    rows, seen = [], set()
+    for rv in info.get("latestReviews") or []:
+        login = (rv.get("author") or {}).get("login") or ""
+        if not login:
+            continue
+        disp = {"APPROVED": "approved", "CHANGES_REQUESTED": "changes"}.get(
+            (rv.get("state") or "").upper(), "commented")
+        rows.append((login, disp, _short_age(rv.get("submittedAt")), _is_bot(login)))
+        seen.add(login.lower())
+    for req in info.get("reviewRequests") or []:
+        login = _req_login(req)
+        if login and login.lower() not in seen:
+            rows.append((login, "pending", "", _is_bot(login)))
+            seen.add(login.lower())
+    rows.sort(key=lambda r: r[3])            # bots last, otherwise stable
+    return rows
+
+
+def _review_inner(kind):
+    """SVG innards for a disposition glyph, sized to the 16px icon grid."""
+    if kind == "approved":
+        return ('<circle cx="8" cy="8" r="5.4" fill="none" stroke="#4cb782" stroke-width="1.5"/>'
+                '<path d="M5.3 8.2 L7.1 10 L10.7 6.2" fill="none" stroke="#4cb782" '
+                'stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>')
+    if kind == "changes":
+        return ('<circle cx="8" cy="8" r="5.4" fill="none" stroke="#e0655f" stroke-width="1.5"/>'
+                '<rect x="5.2" y="7.25" width="5.6" height="1.5" rx="0.75" fill="#e0655f"/>')
+    if kind == "commented":
+        return ('<circle cx="8" cy="8" r="5.4" fill="none" stroke="#888b94" stroke-width="1.5"/>'
+                '<circle cx="5.5" cy="8" r="0.95" fill="#888b94"/>'
+                '<circle cx="8" cy="8" r="0.95" fill="#888b94"/>'
+                '<circle cx="10.5" cy="8" r="0.95" fill="#888b94"/>')
+    if kind in ("merged", "closed"):
+        col = "#7d87e0" if kind == "merged" else "#585b62"
+        return (f'<circle cx="8" cy="8" r="6.5" fill="{col}"/>'
+                '<circle cx="5.7" cy="5" r="1.2" fill="#fff"/>'
+                '<circle cx="5.7" cy="11" r="1.2" fill="#fff"/>'
+                '<circle cx="10.5" cy="9.6" r="1.2" fill="#fff"/>'
+                '<path d="M5.7 6.1 v4.9 M5.7 6.6 a3.6 3.6 0 0 0 3.4 3" fill="none" '
+                'stroke="#fff" stroke-width="1.3" stroke-linecap="round"/>')
+    # pending: a faint hollow ring with a center dot
+    return ('<circle cx="8" cy="8" r="5.4" fill="none" stroke="#5c5f66" stroke-width="1.5"/>'
+            '<circle cx="8" cy="8" r="1.5" fill="#5c5f66"/>')
+
+
+def review_icon(kind):
+    return _svg(_review_inner(kind))
+
+
+def _row_tip(states, win):
+    """The row glyph's hover text. One PR names its number and standing; several
+    collapse to a count plus the winning PR's standing."""
+    num, info, kind, _chip = win
+    if len(states) > 1:
+        return f"{len(states)} PRs · #{num} {_pr_phrase(kind, info)}"
+    draft = info.get("isDraft") and kind in ("pending", "approved", "changes")
+    head = f"#{num} draft" if draft else f"#{num}"
+    if kind == "pending":
+        reqs = _request_logins(info)
+        phrase = "review requested: " + ", ".join(reqs) if reqs else "no reviewers requested"
+        return f"{head} · {phrase}"
+    tip = f"{head} · {_pr_phrase(kind, info)}"
+    if kind == "changes":
+        who = _decider_logins(info, "CHANGES_REQUESTED")
+        if who:
+            tip += " · " + ", ".join(who)
+    return tip
+
+
+def review_row_glyph(prnums):
+    """One aggregate glyph for a list row, or '' when no PR has live data. The
+    winning PR (lowest _PR_RANK) sets the glyph, its draft flag its opacity."""
+    states = [(n, info, *_pr_state(info))
+              for n, info in ((n, pr_info(n)) for n in prnums) if info]
+    if not states:
+        return ""
+    win = min(states, key=lambda s: _PR_RANK.get(s[2], 9))
+    _num, info, kind, _chip = win
+    draft = info.get("isDraft") and kind in ("pending", "approved", "changes")
+    cls = "rev draft" if draft else "rev"
+    tip = html.escape(_row_tip(states, win), quote=True)
+    return f'<span class="{cls}" data-tip="{tip}">{review_icon(kind)}</span>'
+
+
+def render_pr_block(prnums):
+    """The 'Pull requests' block for the Properties panel: one entry per PR with a
+    ready/draft/merged chip, a standing line, and each reviewer's verdict and age.
+    Empty when no PR has live data (so static builds and failures show nothing)."""
+    infos = [(n, pr_info(n)) for n in prnums]
+    infos = [(n, info) for n, info in infos if info]
+    if not infos:
+        return ""
+    parts = ['<h3 style="margin-top:26px">Pull requests</h3>']
+    for num, info in infos:
+        kind, chip = _pr_state(info)
+        url = html.escape(str(info.get("url") or ""), quote=True)
+        label = f"#{num}"
+        link = f'<a href="{url}">{label}</a>' if url else label
+        parts.append('<div class="prb">'
+                     f'<div class="pr-line">{review_icon(kind)}{link}'
+                     f'<span class="mini">{html.escape(chip)}</span></div>'
+                     f'<div class="pr-sub">{html.escape(_pr_phrase(kind, info))}</div>')
+        for login, disp, age, bot in _pr_reviewers(info):
+            age_html = f'<span class="age">{html.escape(age)}</span>' if age else ""
+            parts.append(f'<div class="rvr{" bot" if bot else ""}">{review_icon(disp)}'
+                         f'{html.escape(login)}{age_html}</div>')
+        parts.append('</div>')
+    ages = [int(time.time() - _PR_CACHE[n]["at"]) for n, _ in infos if n in _PR_CACHE]
+    if ages:
+        parts.append(f'<div class="checked">checked {_age_label(min(ages))}</div>')
+    return "".join(parts)
+
+
+def _pr_signature():
+    """A hashable snapshot of every issue's PR review state, so the watcher can
+    bump the SSE version (and live-reload open pages) only on a material change."""
+    sig = []
+    for it in list_issues():
+        for n in _pr_refs(it):
+            info = pr_info(n)
+            if not info:
+                sig.append((n, None))
+                continue
+            revs = tuple(sorted((r[0], r[1]) for r in _pr_reviewers(info)))
+            sig.append((n, _pr_state(info), revs))
+    return tuple(sig)
+
+
+# --------------------------------------------------------------------------- #
 # Reorder write path (the one place the viewer writes markdown)
 # --------------------------------------------------------------------------- #
 
@@ -1169,6 +1467,7 @@ def _restart():
 
 def watch():
     mtimes, init, tick, agents_key, agents_beat = {}, False, 0, None, 0.0
+    pr_key = None
     while True:
         snap = {}
         for p in [SELF] + _watched_files():
@@ -1199,6 +1498,14 @@ def watch():
                 STATE["version"] += 1
                 agents_beat = now
             agents_key = key
+        if tick % 20 == 0:
+            # PR review state. Cheap cache reads most ticks; a real gh refresh only
+            # every PR_TTL. Re-render open pages when a PR's standing actually moves.
+            key = _pr_signature()
+            if pr_key is not None and key != pr_key:
+                STATE["changed"] = "reviews"
+                STATE["version"] += 1
+            pr_key = key
         time.sleep(0.5)
 
 
