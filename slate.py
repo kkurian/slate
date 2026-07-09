@@ -402,17 +402,30 @@ a{color:var(--ink);text-decoration:none}
 .rev{display:inline-flex;align-items:center;gap:5px;flex:none}
 .rev.draft{opacity:.55}
 .rev .prn{color:var(--faint);font-size:12.5px;font-variant-numeric:tabular-nums}
-/* Pull requests block in the Properties panel. */
+/* Pull requests block in the Properties panel. The PR line is the object —
+   glyph, number, chip at full size; its reviewers are subordinate detail and
+   hang beneath it on a thread rule dropped from the glyph's centerline, one
+   register smaller and quieter, so parent and children can't be misread as
+   siblings. Merged and closed PRs are settled business: the entry collapses
+   to its one line, dimmed. The .pr-sub standing line survives only where
+   there is nothing else to hang — a pending PR nobody has been asked to
+   review — because there the absence is the news. */
 .prb{margin:0 0 4px}
-.prb+.prb{margin-top:16px}
+.prb+.prb{margin-top:14px}
 .pr-line{display:flex;align-items:center;gap:7px;font-size:13px}
 .pr-line a{color:var(--ink);font-variant-numeric:tabular-nums}
 .pr-line a:hover{color:var(--accent)}
 .mini{font-size:10.5px;font-weight:500;padding:1px 6px;border:1px solid rgba(255,255,255,.09);
   border-radius:5px;color:var(--mut);line-height:1.5}
-.pr-sub{margin:1px 0 6px 23px;font-size:12px;color:var(--mut)}
-.rvr{display:flex;align-items:center;gap:7px;padding:2.5px 0 2.5px 2px;font-size:12.5px;color:#c4c6cc}
-.rvr .age{margin-left:auto;color:var(--faint);font-size:11.5px;font-variant-numeric:tabular-nums}
+.prb.done .pr-line{opacity:.8}
+.prb.done .pr-line a{color:var(--mut)}
+.prb.done .pr-line a:hover{color:var(--accent)}
+.pr-sub{margin:2px 0 0 23px;font-size:12px;color:var(--faint)}
+.rvs{margin:4px 0 0 7px;padding-left:15px;border-left:1px solid var(--line)}
+.rvr{display:flex;align-items:center;gap:6px;padding:2px 0;font-size:12px;color:var(--mut)}
+.rvr .ico{width:13px;height:13px}
+.rvr .who{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.rvr .age{margin-left:auto;flex:none;color:var(--faint);font-size:11px;font-variant-numeric:tabular-nums}
 .rvr.bot{opacity:.5}
 .checked{margin-top:12px;font-size:11px;color:var(--faint)}
 /* Pull requests view — one two-line ledger row per distinct PR: identity on line
@@ -1391,9 +1404,15 @@ def review_row_glyph(prnums):
 
 
 def render_pr_block(prnums):
-    """The 'Pull requests' block for the Properties panel: one entry per PR with a
-    ready/draft/merged chip, a standing line, and each reviewer's verdict and age.
-    Empty when no PR has live data (so static builds and failures show nothing)."""
+    """The 'Pull requests' block for the Properties panel: one entry per PR. The
+    PR line is the object — glyph, number, ready/draft chip — and its reviewers
+    hang beneath it on a thread rule, each with a verdict glyph and age. Merged
+    and closed PRs are settled, so reviewer detail would inform nothing; the
+    entry collapses to its one dimmed line. A standing phrase survives in just
+    one place — a pending PR with no human reviewer in play says so, because
+    there the absence is the only news; every other standing is already spoken
+    by the glyph and chip. Empty when no PR has live data (so static builds and
+    failures show nothing)."""
     infos = [(n, pr_info(n)) for n in prnums]
     infos = [(n, info) for n, info in infos if info]
     if not infos:
@@ -1404,14 +1423,21 @@ def render_pr_block(prnums):
         url = html.escape(str(info.get("url") or ""), quote=True)
         label = f"#{num}"
         link = f'<a href="{url}">{label}</a>' if url else label
-        parts.append('<div class="prb">'
+        done = kind in ("merged", "closed")
+        parts.append(f'<div class="prb{" done" if done else ""}">'
                      f'<div class="pr-line">{review_icon(kind)}{link}'
-                     f'<span class="mini">{html.escape(chip)}</span></div>'
-                     f'<div class="pr-sub">{html.escape(_pr_phrase(kind, info))}</div>')
-        for login, disp, age, bot in _pr_reviewers(info):
-            age_html = f'<span class="age">{html.escape(age)}</span>' if age else ""
-            parts.append(f'<div class="rvr{" bot" if bot else ""}">{review_icon(disp)}'
-                         f'{html.escape(login)}{age_html}</div>')
+                     f'<span class="mini">{html.escape(chip)}</span></div>')
+        if not done:
+            rows = _pr_reviewers(info)
+            if kind == "pending" and not any(not bot for *_, bot in rows):
+                parts.append(f'<div class="pr-sub">{html.escape(_pr_phrase(kind, info))}</div>')
+            if rows:
+                rvs = []
+                for login, disp, age, bot in rows:
+                    age_html = f'<span class="age">{html.escape(age)}</span>' if age else ""
+                    rvs.append(f'<div class="rvr{" bot" if bot else ""}">{review_icon(disp)}'
+                               f'<span class="who">{html.escape(login)}</span>{age_html}</div>')
+                parts.append(f'<div class="rvs">{"".join(rvs)}</div>')
         parts.append('</div>')
     ages = [int(time.time() - _PR_CACHE[n]["at"]) for n, _ in infos if n in _PR_CACHE]
     if ages:
