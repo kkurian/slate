@@ -392,9 +392,10 @@ a{color:var(--ink);text-decoration:none}
 .item .av,.item .rev,.item .pulse{margin-left:auto}
 .item .pulse~.rev,.item .pulse~.av,.item .rev~.av{margin-left:0}
 .item .av+.idate,.item .rev+.idate,.item .pulse+.idate{margin-left:0;padding-left:12px}
-/* PR review state — one aggregate glyph per row, tooltip on hover (the .av idiom). */
-.rev{display:inline-flex;flex:none;position:relative;cursor:default}
+/* PR review state — glyph + PR number per row, tooltip on hover (the .av idiom). */
+.rev{display:inline-flex;align-items:center;gap:5px;flex:none;position:relative;cursor:default}
 .rev.draft{opacity:.55}
+.rev .prn{color:var(--faint);font-size:12.5px;font-variant-numeric:tabular-nums}
 .rev[data-tip]:hover::after{content:attr(data-tip);position:absolute;bottom:calc(100% + 7px);
   right:-2px;background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:6px;
   padding:3px 8px;font-size:11.5px;font-weight:500;letter-spacing:0;white-space:nowrap;
@@ -800,13 +801,14 @@ def issue_row(it, drag=False):
     """One full-width list row: icons, id, title, updated date pinned right."""
     attrs = (f' draggable="true" data-id="{html.escape(it["id"], quote=True)}"'
              if drag else "")
+    rev = review_row_glyph(_pr_refs(it))
+    # A row showing PR state gives the date's slot to the PR number instead.
     date = (f'<span class="idate" title="last updated"><span class="k">updated</span> '
             f'{html.escape(str(it["updated"]))}</span>'
-            if it.get("updated") else "")
+            if it.get("updated") and not rev else "")
     hit = agent_presence()["issues"].get(it["id"])
     dot = (f'<span class="pulse" title="agent active · {_age_label(hit["age"])}"></span>'
            if hit else "")
-    rev = review_row_glyph(_pr_refs(it))
     disc = assignee_icon(it.get("assignee", ""))
     return (
         f'<a class="item"{attrs} href="{url_for("issue", it["id"])}">'
@@ -1299,39 +1301,50 @@ def review_icon(kind):
     return _svg(_review_inner(kind))
 
 
-def _row_tip(states, win):
-    """The row glyph's hover text. One PR names its number and standing; several
-    collapse to a count plus the winning PR's standing."""
-    num, info, kind, _chip = win
-    if len(states) > 1:
-        return f"{len(states)} PRs · #{num} {_pr_phrase(kind, info)}"
-    draft = info.get("isDraft") and kind in ("pending", "approved", "changes")
-    head = f"#{num} draft" if draft else f"#{num}"
+def _pr_short(info, kind):
+    """One PR's compact standing for the row tooltip — who it waits on, prefixed
+    with its draft state. The PR number sits in the row itself, so it stays out."""
     if kind == "pending":
         reqs = _request_logins(info)
-        phrase = "review requested: " + ", ".join(reqs) if reqs else "no reviewers requested"
-        return f"{head} · {phrase}"
-    tip = f"{head} · {_pr_phrase(kind, info)}"
-    if kind == "changes":
-        who = _decider_logins(info, "CHANGES_REQUESTED")
-        if who:
-            tip += " · " + ", ".join(who)
-    return tip
+        phrase = ("review requested: " + ", ".join(reqs)) if reqs else "no reviewers requested"
+    else:
+        phrase = _pr_phrase(kind, info)
+        if kind == "changes":
+            who = _decider_logins(info, "CHANGES_REQUESTED")
+            if who:
+                phrase += " · " + ", ".join(who)
+    if info.get("isDraft") and kind in ("pending", "approved", "changes"):
+        phrase = "draft · " + phrase
+    return phrase
+
+
+def _row_tip(states, win):
+    """The row cluster's hover text — kept short so it stays legible over the
+    neighboring row it necessarily overlaps. Several PRs list number + standing
+    apiece; the visible #number already identifies a lone PR."""
+    if len(states) > 1:
+        return " · ".join(f"#{n} {_pr_phrase(kind, info)}" for n, info, kind, _ in states)
+    _num, info, kind, _chip = win
+    return _pr_short(info, kind)
 
 
 def review_row_glyph(prnums):
-    """One aggregate glyph for a list row, or '' when no PR has live data. The
-    winning PR (lowest _PR_RANK) sets the glyph, its draft flag its opacity."""
+    """The row's PR cluster — aggregate glyph plus the winning PR's number, which
+    takes the updated date's slot (a visible number beats one behind a hover) — or
+    '' when no PR has live data. The winning PR (lowest _PR_RANK) sets the glyph
+    and number, its draft flag the opacity; extra PRs collapse to a +n."""
     states = [(n, info, *_pr_state(info))
               for n, info in ((n, pr_info(n)) for n in prnums) if info]
     if not states:
         return ""
     win = min(states, key=lambda s: _PR_RANK.get(s[2], 9))
-    _num, info, kind, _chip = win
+    num, info, kind, _chip = win
     draft = info.get("isDraft") and kind in ("pending", "approved", "changes")
     cls = "rev draft" if draft else "rev"
     tip = html.escape(_row_tip(states, win), quote=True)
-    return f'<span class="{cls}" data-tip="{tip}">{review_icon(kind)}</span>'
+    more = f" +{len(states) - 1}" if len(states) > 1 else ""
+    return (f'<span class="{cls}" data-tip="{tip}">{review_icon(kind)}'
+            f'<span class="prn">#{num}{more}</span></span>')
 
 
 def render_pr_block(prnums):
