@@ -1422,7 +1422,7 @@ def render_pr_block(prnums):
         kind, chip = _pr_state(info)
         url = html.escape(str(info.get("url") or ""), quote=True)
         label = f"#{num}"
-        link = f'<a href="{url}">{label}</a>' if url else label
+        link = f'<a href="{url}" target="_blank" rel="noopener">{label}</a>' if url else label
         done = kind in ("merged", "closed")
         parts.append(f'<div class="prb{" done" if done else ""}">'
                      f'<div class="pr-line">{review_icon(kind)}{link}'
@@ -1554,8 +1554,8 @@ def _pr_ledger_row(num, info, owners):
     terminal = kind in ("merged", "closed")
     url = html.escape(str(info.get("url") or ""), quote=True)
     label = f"#{num}"
-    numhtml = (f'<a class="prn" href="{url}">{label}</a>' if url
-               else f'<span class="prn">{label}</span>')
+    numhtml = (f'<a class="prn" href="{url}" target="_blank" rel="noopener">{label}</a>'
+               if url else f'<span class="prn">{label}</span>')
     title = html.escape(str(info.get("title") or ""))
     cls = "pritem" + (" dim" if terminal else "") + (" draft" if draft else "")
     l1 = (f'<div class="l1">{numhtml}<span class="ptitle">{title}</span>'
@@ -1580,7 +1580,8 @@ def _pr_degraded_row(num, owners):
                 'stroke-width="1.5" stroke-dasharray="1.6 1.8"/>')
     url = _pr_github_url(num)
     label = f"#{num}"
-    numhtml = (f'<a class="prn" href="{html.escape(url, quote=True)}">{label}</a>'
+    numhtml = (f'<a class="prn" href="{html.escape(url, quote=True)}" target="_blank" '
+               f'rel="noopener">{label}</a>'
                if url else f'<span class="prn">{label}</span>')
     title = html.escape(str(owners[0]["title"])) if owners else ""
     return (f'<div class="pritem"><div class="l1">{ring}{numhtml}'
