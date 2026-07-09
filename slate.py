@@ -1079,7 +1079,7 @@ def _touched_issues(text, id_pat):
         for block in content:
             if not (isinstance(block, dict) and block.get("type") == "tool_use"):
                 continue
-            inp = block.get("input") if isinstance(block.get("input"), dict) else {}
+            inp = raw if isinstance(raw := block.get("input"), dict) else {}
             for field in ("file_path", "command"):
                 v = inp.get(field)
                 if isinstance(v, str):
@@ -1601,7 +1601,10 @@ def apply_reorder(status, ids):
         raise ValueError(f"ids do not match the issues currently in {status!r}")
     today = time.strftime("%Y-%m-%d")
     for pos, iid in enumerate(ids, 1):
-        p, meta, _ = find_issue(iid)
+        res = find_issue(iid)
+        if res is None:                      # issue file vanished since the check above
+            raise ValueError(f"unknown issue {iid!r}")
+        p, meta, _ = res
         if str(meta.get("order", "")) == str(pos):
             continue   # already in place — don't churn the file or its updated date
         _rewrite_meta(p, {"order": pos, "updated": today})
@@ -1614,7 +1617,7 @@ def apply_status(iid, status):
     res = find_issue(iid) if isinstance(iid, str) else None
     if not res:
         raise ValueError(f"unknown issue {iid!r}")
-    p, meta, _ = res
+    p, _, _ = res
     _rewrite_meta(p, {"status": status, "order": None,
                       "updated": time.strftime("%Y-%m-%d")})
 
@@ -1695,7 +1698,7 @@ def watch():
 
 
 class Handler(BaseHTTPRequestHandler):
-    def log_message(self, *a):
+    def log_message(self, format, *args):   # match the base signature; stay silent
         pass
 
     def do_GET(self):
