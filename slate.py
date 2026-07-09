@@ -93,6 +93,8 @@ def url_for(kind, ident=None):
             return f"status-{slug(ident)}.html"
         if kind == "waves":
             return "waves.html"
+        if kind == "prs":
+            return "prs.html"
         return f"{ident}.html"
     if kind == "project":
         return "/"
@@ -100,6 +102,8 @@ def url_for(kind, ident=None):
         return f"/status/{slug(ident)}"
     if kind == "waves":
         return "/waves"
+    if kind == "prs":
+        return "/prs"
     return f"/issue/{ident}"
 
 
@@ -406,6 +410,32 @@ a{color:var(--ink);text-decoration:none}
 .rvr .age{margin-left:auto;color:var(--faint);font-size:11.5px;font-variant-numeric:tabular-nums}
 .rvr.bot{opacity:.5}
 .checked{margin-top:12px;font-size:11px;color:var(--faint)}
+/* Pull requests view — one two-line ledger row per distinct PR: identity on line
+   1 (number, title, chip, owning issues), standing on line 2 (phrase, reviewers,
+   ages). Rows never lead with the review glyph — the section heading carries it.
+   Merged/closed collapse to one muted line; a gh outage degrades to a flat list. */
+.prv .gcount{color:var(--faint);font-weight:500;font-variant-numeric:tabular-nums}
+.prv .pritem{padding:5px 8px 6px;border-radius:6px}
+.prv .pritem:hover{background:var(--hover)}
+.prv .pritem.dim .ptitle{color:var(--mut)}
+.prv .pritem.draft{opacity:.55}
+.prv .l1{display:flex;align-items:center;gap:7px;font-size:13px;line-height:1.5}
+.prv .l2{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin:0 0 0 2px;
+  font-size:12px;color:var(--mut)}
+.prv .prn{color:var(--faint);font-size:12.5px;font-variant-numeric:tabular-nums;flex:none}
+.prv a.prn:hover{color:var(--accent)}
+.prv .ptitle{color:#c4c6cc;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.prv .ptitle.deg{color:var(--mut)}
+.prv .mini{flex:none}
+.prv .right{margin-left:auto;display:inline-flex;align-items:center;gap:7px;flex:none;
+  padding-left:14px}
+.prv .right-in{display:inline-flex;gap:7px;flex:none}
+.prv .ph{color:var(--mut)}
+.prv .rv{display:inline-flex;align-items:center;gap:5px;color:#c4c6cc}
+.prv .rv.bot{opacity:.5}
+.prv .a{color:var(--faint);font-size:11.5px;font-variant-numeric:tabular-nums}
+.prv .sep{color:#3a3d44}
+.prv .notice{margin:-6px 0 16px;font-size:12.5px;color:var(--mut);max-width:64ch}
 .content{padding:42px 60px 64px;max-width:860px;display:flex;flex-direction:column}
 .view-head h1{display:flex;align-items:center;gap:9px;margin:0 0 18px;
   font-size:18px;font-weight:600;letter-spacing:-.01em}
@@ -517,7 +547,7 @@ SSE_SCRIPT = """<script>
     if(!a) return;
     var u = new URL(a.href, location.href);
     if(u.origin !== location.origin) return;                 // external link → default
-    if(u.pathname !== '/' && u.pathname !== '/waves'
+    if(u.pathname !== '/' && u.pathname !== '/waves' && u.pathname !== '/prs'
        && !u.pathname.startsWith('/issue/')
        && !u.pathname.startsWith('/status/')) return;
     if(u.pathname === location.pathname && u.hash) return;    // in-page anchor → default
@@ -698,6 +728,16 @@ def waves_icon():
                 'stroke-width="1.4" stroke-linecap="round"/>')
 
 
+def prs_icon():
+    """Merge motif — two source nodes joining a target — drawn in the Waves icon's
+    gray stroke language: the marker for the Pull requests view."""
+    return _svg('<circle cx="5" cy="4.1" r="1.7" fill="none" stroke="#6e7178" stroke-width="1.4"/>'
+                '<circle cx="5" cy="11.9" r="1.7" fill="none" stroke="#6e7178" stroke-width="1.4"/>'
+                '<circle cx="11.5" cy="9.7" r="1.7" fill="none" stroke="#6e7178" stroke-width="1.4"/>'
+                '<path d="M5 5.9 v4.2 M5 6.4 a4.4 4.4 0 0 0 4.7 3.2" fill="none" '
+                'stroke="#6e7178" stroke-width="1.4" stroke-linecap="round"/>')
+
+
 def progress_icon(done, total):
     """Fractional pie showing a wave's completion (done/total), muted track behind."""
     frac = (done / total) if total else 0
@@ -767,18 +807,26 @@ def sidebar_html(active_status=None):
         parts.append(
             f'<a class="{cls}" href="{url_for("status", status)}">{status_icon(status)}'
             f'{html.escape(status)}<span class="n">{count}</span></a>')
-    # Waves is a lens across the statuses, not a status — set it apart with a divider,
-    # and count distinct waves (not issues carrying one). The divider carries its style
-    # inline: it only exists in wave mode, so the shared CSS (and no-wave builds) is left
-    # byte-identical.
+    # Waves and Pull requests are lenses across the statuses, not statuses — set them
+    # apart with a single divider below the status list, and each exists only once its
+    # field appears on some issue (Waves counts distinct waves; Pull requests counts
+    # open PRs). One divider serves both, present when either view is. The divider
+    # carries its style inline so the shared CSS (and no-lens builds) stays byte-identical.
     waves = {str(it["wave"]) for it in issues if it.get("wave")}
-    if waves:                                # the Waves view only exists once a wave is set
-        cls = "nav-row active" if active_status == "Waves" else "nav-row"
+    pr_issues = [it for it in issues if _pr_refs(it)]
+    if waves or pr_issues:
         parts.append('<div style="height:1px;background:var(--line);margin:9px 8px 8px">'
                      '</div>')
+    if waves:                                # the Waves view only exists once a wave is set
+        cls = "nav-row active" if active_status == "Waves" else "nav-row"
         parts.append(
             f'<a class="{cls}" href="{url_for("waves")}">{waves_icon()}'
             f'Waves<span class="n">{len(waves)}</span></a>')
+    if pr_issues:                            # exists once some issue carries a pr:
+        cls = "nav-row active" if active_status == "Pull requests" else "nav-row"
+        parts.append(
+            f'<a class="{cls}" href="{url_for("prs")}">{prs_icon()}'
+            f'Pull requests<span class="n">{_pr_open_count(pr_issues)}</span></a>')
     pres = agent_presence()
     n, workers = pres["sessions"], pres["workers"]
     if n:
@@ -1262,14 +1310,19 @@ def _review_inner(kind):
                 '<circle cx="5.5" cy="8" r="0.95" fill="#888b94"/>'
                 '<circle cx="8" cy="8" r="0.95" fill="#888b94"/>'
                 '<circle cx="10.5" cy="8" r="0.95" fill="#888b94"/>')
-    if kind in ("merged", "closed"):
-        col = "#7d87e0" if kind == "merged" else "#585b62"
-        return (f'<circle cx="8" cy="8" r="6.5" fill="{col}"/>'
+    if kind == "merged":
+        return ('<circle cx="8" cy="8" r="6.5" fill="#7d87e0"/>'
                 '<circle cx="5.7" cy="5" r="1.2" fill="#fff"/>'
                 '<circle cx="5.7" cy="11" r="1.2" fill="#fff"/>'
                 '<circle cx="10.5" cy="9.6" r="1.2" fill="#fff"/>'
                 '<path d="M5.7 6.1 v4.9 M5.7 6.6 a3.6 3.6 0 0 0 3.4 3" fill="none" '
                 'stroke="#fff" stroke-width="1.3" stroke-linecap="round"/>')
+    if kind == "closed":
+        # Closed-but-not-merged, GitHub's red semantic, in slate's disc language:
+        # the merged disc recolored red with the merge motif negated to a white X.
+        return ('<circle cx="8" cy="8" r="6.5" fill="#e0655f"/>'
+                '<path d="M5.6 5.6 L10.4 10.4 M10.4 5.6 L5.6 10.4" stroke="#fff" '
+                'stroke-width="1.5" stroke-linecap="round"/>')
     # pending: a faint hollow ring with a center dot
     return ('<circle cx="8" cy="8" r="5.4" fill="none" stroke="#5c5f66" stroke-width="1.5"/>'
             '<circle cx="8" cy="8" r="1.5" fill="#5c5f66"/>')
@@ -1339,6 +1392,175 @@ def _pr_signature():
             revs = tuple(sorted((r[0], r[1]) for r in _pr_reviewers(info)))
             sig.append((n, _pr_state(info), revs))
     return tuple(sig)
+
+
+# --------------------------------------------------------------------------- #
+# Pull requests view — one deduped entry per PR, grouped by review standing
+# --------------------------------------------------------------------------- #
+# A lens across the issues, like Waves: the same `pr:` field the row aggregate and
+# the Properties panel already read, gathered into one distinct-PR-per-row list so
+# the human question — what is in flight, and where does each PR stand — is answered
+# in the layout itself. Actionable sections first (changes/pending/approved), the
+# terminal Merged and Closed sections trailing muted. Fail-soft: with gh down the
+# frontmatter still yields every number and its issues, so the view degrades to a
+# flat list that keeps its links. No tooltips anywhere here.
+
+# Standing sections, in display order; each renders only when non-empty.
+_PR_SECTIONS = [("changes", "Changes requested"), ("pending", "Awaiting review"),
+                ("approved", "Approved"), ("merged", "Merged"), ("closed", "Closed")]
+
+
+def _pr_num_key(n):
+    """Sort key for a PR number string; non-numeric refs sort as 0."""
+    try:
+        return int(n)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _distinct_prs(issues):
+    """(order, owners): the distinct PR numbers across issues in first-seen order,
+    and {num: [issue,...]} naming every issue that references each (so PRs shared by
+    two issues — e.g. a split task — appear once, listing both)."""
+    order, owners = [], {}
+    for it in issues:
+        for n in _pr_refs(it):
+            if n not in owners:
+                owners[n] = []
+                order.append(n)
+            owners[n].append(it)
+    return order, owners
+
+
+def _pr_open_count(issues):
+    """The sidebar/head badge: PRs whose gh state is OPEN (drafts counted,
+    merged/closed excluded). With gh unavailable for every PR, fall back to the
+    count of distinct pr: numbers so the badge still reads as PRs in flight."""
+    nums, _ = _distinct_prs(issues)
+    infos = [pr_info(n) for n in nums]
+    if not any(infos):
+        return len(nums)
+    return sum(1 for i in infos if i and (i.get("state") or "").upper() == "OPEN")
+
+
+def _pr_repo_slug():
+    """owner/repo the pr: numbers reference, for building GitHub links when gh is
+    down: SLATE_REPO wins; else parse ROOT's git origin. None if neither is known."""
+    repo = (os.environ.get("SLATE_REPO") or "").strip()
+    if repo:
+        return repo
+    root = str(_git_root(ROOT) or ROOT)
+    try:
+        proc = subprocess.run(
+            ["git", "-C", root, "config", "--get", "remote.origin.url"],
+            capture_output=True, text=True, timeout=PR_TIMEOUT)
+        if proc.returncode != 0:
+            return None
+        url = proc.stdout.strip()
+    except Exception:
+        return None
+    # git@github.com:owner/repo.git  or  https://github.com/owner/repo(.git)
+    m = re.search(r"[:/]([^/:]+/[^/]+?)(?:\.git)?$", url)
+    return m.group(1) if m else None
+
+
+def _pr_github_url(num):
+    """A github.com pull URL for a PR number when the repo is known, else None —
+    so a degraded row links out only when it can."""
+    repo = _pr_repo_slug()
+    return f"https://github.com/{repo}/pull/{num}" if repo else None
+
+
+def _pr_issue_links(items):
+    """The owning issues of a PR as internal links (the wikilink accent style)."""
+    return "".join(f'<a class="wl" href="{url_for("issue", it["id"])}">'
+                   f'{html.escape(it["id"])}</a>' for it in items)
+
+
+def _pr_ledger_row(num, info, owners):
+    """A live PR's row. Identity on line 1: number linked to GitHub, PR title, a
+    draft/ready chip, owning issues pinned right. Standing on line 2: the phrase,
+    then each reviewer's verdict glyph, login and age (bots muted, last). No leading
+    review glyph — the section heading carries it. Merged/closed drop line 2 and
+    read as a single muted line (their standing is terminal)."""
+    kind, chip = _pr_state(info)
+    draft = bool(info.get("isDraft")) and kind in ("pending", "approved", "changes")
+    terminal = kind in ("merged", "closed")
+    url = html.escape(str(info.get("url") or ""), quote=True)
+    label = f"#{num}"
+    numhtml = (f'<a class="prn" href="{url}">{label}</a>' if url
+               else f'<span class="prn">{label}</span>')
+    title = html.escape(str(info.get("title") or ""))
+    cls = "pritem" + (" dim" if terminal else "") + (" draft" if draft else "")
+    l1 = (f'<div class="l1">{numhtml}<span class="ptitle">{title}</span>'
+          f'<span class="mini">{html.escape(chip)}</span>'
+          f'<span class="right">{_pr_issue_links(owners)}</span></div>')
+    if terminal:
+        return f'<div class="{cls}">{l1}</div>'
+    l2 = [f'<span class="ph">{html.escape(_pr_phrase(kind, info))}</span>']
+    for login, disp, age, bot in _pr_reviewers(info):
+        age_html = f' <span class="a">{html.escape(age)}</span>' if age else ""
+        l2.append('<span class="sep">·</span>')
+        l2.append(f'<span class="rv{" bot" if bot else ""}">{review_icon(disp)}'
+                  f'{html.escape(login)}{age_html}</span>')
+    return f'<div class="{cls}">{l1}<div class="l2">{"".join(l2)}</div></div>'
+
+
+def _pr_degraded_row(num, owners):
+    """A degraded row (gh down): a dashed unknown ring, the PR number (linked to
+    GitHub only when the repo is known, plain text otherwise), the owning issues,
+    and the first owner's issue title standing in for the PR title."""
+    ring = _svg('<circle cx="8" cy="8" r="5.4" fill="none" stroke="#5c5f66" '
+                'stroke-width="1.5" stroke-dasharray="1.6 1.8"/>')
+    url = _pr_github_url(num)
+    label = f"#{num}"
+    numhtml = (f'<a class="prn" href="{html.escape(url, quote=True)}">{label}</a>'
+               if url else f'<span class="prn">{label}</span>')
+    title = html.escape(str(owners[0]["title"])) if owners else ""
+    return (f'<div class="pritem"><div class="l1">{ring}{numhtml}'
+            f'<span class="right-in">{_pr_issue_links(owners)}</span>'
+            f'<span class="ptitle deg">{title}</span></div></div>')
+
+
+def render_prs_page(live=True):
+    """The Pull requests view: one entry per distinct PR across all issues, grouped
+    by review standing. Live PRs render a two-line ledger row; merged/closed collapse
+    to one muted line. With gh unavailable for every PR (a gh outage, or a static
+    build where pr_info is always None) the view degrades to a flat list with a
+    notice — the frontmatter still yields every number, its issues, and a GitHub link."""
+    issues = [it for it in list_issues() if _pr_refs(it)]
+    order, owners = _distinct_prs(issues)
+    infos = {n: pr_info(n) for n in order}
+    live_nums = [n for n in order if infos[n]]
+    head = (f'<div class="view-head"><h1>{prs_icon()}Pull requests'
+            f'<span class="vcount">{_pr_open_count(issues)}</span></h1></div>')
+    if not live_nums:                        # gh down / static build → degraded form
+        notice = ('<div class="notice">GitHub state unavailable — listing the '
+                  '<code>pr:</code> links from the issue files. Each number still '
+                  'links to GitHub; standings and reviewers return when '
+                  '<code>gh</code> does.</div>')
+        rows = "".join(_pr_degraded_row(n, owners[n])
+                       for n in sorted(order, key=_pr_num_key, reverse=True))
+        body = f'<div class="prv">{notice}<section>{rows}</section></div>'
+        return page(f"Pull requests · {project_title()}", sidebar_html("Pull requests"),
+                    head + body, live=live)
+    by_kind = {}
+    for n in live_nums:
+        by_kind.setdefault(_pr_state(infos[n])[0], []).append(n)
+    parts = []
+    for kind, label in _PR_SECTIONS:
+        nums = sorted(by_kind.get(kind, []), key=_pr_num_key, reverse=True)
+        if not nums:
+            continue
+        rows = "".join(_pr_ledger_row(n, infos[n], owners[n]) for n in nums)
+        parts.append(f'<section><div class="group-h">{review_icon(kind)}{label}'
+                     f'<span class="gcount">{len(nums)}</span></div>{rows}</section>')
+    ages = [int(time.time() - _PR_CACHE[n]["at"]) for n in live_nums if n in _PR_CACHE]
+    if ages:
+        parts.append(f'<div class="checked">checked {_age_label(min(ages))}</div>')
+    body = f'<div class="prv">{"".join(parts)}</div>'
+    return page(f"Pull requests · {project_title()}", sidebar_html("Pull requests"),
+                head + body, live=live)
 
 
 # --------------------------------------------------------------------------- #
@@ -1492,6 +1714,10 @@ class Handler(BaseHTTPRequestHandler):
             if any(it.get("wave") for it in list_issues()):
                 return self._html(render_waves_page())
             return self.send_error(404)
+        if path == "/prs":
+            if any(_pr_refs(it) for it in list_issues()):
+                return self._html(render_prs_page())
+            return self.send_error(404)
         m = re.match(r"^/status/([a-z0-9-]+)$", path)
         if m:
             status = {slug(s): s for s in STATUS_ORDER}.get(m.group(1))
@@ -1589,6 +1815,9 @@ def build(outdir):
             views += 1
     if any(it.get("wave") for it in issues):
         (out / "waves.html").write_text(render_waves_page(live=False), encoding="utf-8")
+        views += 1
+    if any(_pr_refs(it) for it in issues):
+        (out / "prs.html").write_text(render_prs_page(live=False), encoding="utf-8")
         views += 1
     count = 0
     for it in issues:
