@@ -290,13 +290,19 @@ def _sort_key(item):
 
 
 def _wave_sort_key(value):
-    # Numeric waves first, ascending (wave 2 before wave 10); string waves after,
-    # alphabetical. Grouping is by the raw value, so the key only orders the groups.
+    # Numeric waves sort ascending (wave 2 before wave 10). A labeled wave may pin
+    # its position with a leading numeric prefix ("0 — hotfix" sorts before wave 1);
+    # labels without one come after every numbered wave, alphabetical. Grouping is
+    # by the raw value, so the key only orders the groups.
     s = str(value).strip()
     try:
         return (0, float(s), "")
     except ValueError:
-        return (1, 0.0, s.lower())
+        head = s.split(None, 1)[0] if s else ""
+        try:
+            return (0, float(head), s.lower())
+        except ValueError:
+            return (1, 0.0, s.lower())
 
 
 def list_issues():
