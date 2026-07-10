@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """slate — a web view of a task tracker kept in plain markdown.
 
-The tracker lives in plain markdown (project.md + issues/*.md). This file is a
-*viewer* with two deliberate write paths: dragging issue rows within a status
-view to reorder them (Esc cancels) rewrites the `order:` frontmatter of the
-affected issues, and picking a state from an issue's status chip rewrites its
-`status:`. Everything else is read-only; if the viewer ever breaks, every file
-is still readable in any editor or on GitHub. Python 3 standard library only —
-no pip, no npm, no build step.
+The tracker lives in plain markdown (project.md + issues/*.md, plus optional
+personal day todos in todos/*.md). This file is a *viewer* with three deliberate
+write paths: dragging issue rows within a status view to reorder them (Esc
+cancels) rewrites the `order:` frontmatter of the affected issues, picking a
+state from an issue's status chip rewrites its `status:`, and ticking a todo
+checkbox flips that one line between `- [ ]` and `- [x]` in its person's file.
+Everything else is read-only; if the viewer ever breaks, every file is still
+readable in any editor or on GitHub. Python 3 standard library only — no pip, no
+npm, no build step.
 
 The live server also shows agent presence: it watches Claude Code's session
 transcripts (under ~/.claude/projects/<slug>/, including workflow subagents;
@@ -26,12 +28,14 @@ Env:
 """
 
 import calendar
+import hashlib
 import html
 import json
 import os
 import re
 import subprocess
 import sys
+import textwrap
 import time
 import threading
 import urllib.parse
@@ -42,6 +46,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent          # the plan/ directory
 ISSUES = ROOT / "issues"
 TEMPLATES = ROOT / "templates"
+TODOS = ROOT / "todos"
 PORT = int(os.environ.get("SLATE_PORT", "8787"))
 
 # 'live' (server) generates /issue/<id> links; 'static' (build) generates <id>.html
@@ -96,6 +101,8 @@ def url_for(kind, ident=None):
             return "waves.html"
         if kind == "prs":
             return "prs.html"
+        if kind == "today":
+            return "today.html"
         return f"{ident}.html"
     if kind == "project":
         return "/"
@@ -105,6 +112,8 @@ def url_for(kind, ident=None):
         return "/waves"
     if kind == "prs":
         return "/prs"
+    if kind == "today":
+        return "/today"
     return f"/issue/{ident}"
 
 
@@ -539,6 +548,41 @@ section.active .group-h{padding-left:0}
 .md li.task input{margin-right:8px;accent-color:var(--accent)}
 .md hr{border:none;border-top:1px solid var(--line);margin:26px 0}
 .wl{color:var(--accent)!important}
+/* Day todos — the Today panel on the board and the Today day view. One list per
+   person; unlike the disabled task boxes in an issue body, these checkboxes are
+   live and post a toggle to /todo. A checked item reads struck-through and muted;
+   a carried-forward item (unchecked, from an older day, shown on the board panel)
+   wears its origin date muted at line end. The day view heads each day with its
+   date and a muted chip row of the distinct issues its items link — the day's
+   working set. New classes only; the shared status/issue CSS stays untouched. */
+.today .group-h{padding-left:0}
+.today-day{margin:6px 0 14px}
+.today-day .group-h{padding-left:0;font-size:13px;color:var(--ink)}
+.todo-links{display:flex;flex-wrap:wrap;gap:8px;margin:2px 0 8px 8px;font-size:12px}
+.todo-links a{color:var(--accent);font-variant-numeric:tabular-nums}
+.todo-person{margin:2px 0 12px}
+.todo-name{font-size:12px;font-weight:600;color:var(--mut);padding:2px 8px 3px}
+.todo-list{list-style:none;margin:0;padding:0}
+.todo-item{display:flex;align-items:flex-start;gap:9px;padding:3px 8px;border-radius:6px;
+  font-size:13.5px;color:#cfd1d7;line-height:1.55}
+.todo-item:hover{background:var(--hover)}
+.todo-item>input{margin:4px 0 0;flex:none;accent-color:var(--accent);cursor:pointer}
+.todo-body{min-width:0;display:flex;flex-direction:column}
+.todo-item.done .todo-text{color:var(--faint);text-decoration:line-through}
+.todo-carried{color:var(--faint);font-size:11.5px;margin-left:8px;
+  font-variant-numeric:tabular-nums}
+/* An item's collapsed instructions — a quiet disclosure under the line. Long WHAT/
+   WHY/WHAT-HAPPENS detail lives here so the item line stays scannable. */
+.todo-detail{margin:1px 0 2px}
+.todo-detail>summary{cursor:pointer;list-style:none;width:max-content;
+  display:inline-flex;align-items:center;gap:5px;color:var(--faint);font-size:11.5px}
+.todo-detail>summary::-webkit-details-marker{display:none}
+.todo-detail>summary::before{content:"\25b8";font-size:9px}
+.todo-detail[open]>summary::before{content:"\25be"}
+.todo-detail>summary:hover{color:var(--mut)}
+.todo-detail .md{font-size:13px;color:var(--mut);margin:5px 0 6px;padding-left:2px}
+.todo-detail .md p{margin:5px 0}
+.todo-detail .md p:first-child{margin-top:0}
 ::-webkit-scrollbar{width:10px;height:10px}
 ::-webkit-scrollbar-thumb{background:rgba(255,255,255,.1);border-radius:6px;
   border:2px solid transparent;background-clip:content-box}
@@ -581,6 +625,21 @@ SSE_SCRIPT = """<script>
     });
   });
 
+  // Todo checkbox: live on the board's Today panel and in the Today day view.
+  // Ticking POSTs the person, the line hash and the desired state to /todo; the
+  // server flips [ ]<->[x] on that one line and the SSE reload repaints. A 409
+  // (the line drifted — edited or already toggled elsewhere) reverts the box; the
+  // next reload shows the file's truth.
+  document.addEventListener('change', function(e){
+    var box = e.target.closest('.todo-box');
+    if(!box) return;
+    fetch('/todo', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({person: box.dataset.person, line_hash: box.dataset.hash,
+        done: box.checked})})
+      .then(function(res){ if(!res.ok) box.checked = !box.checked; })
+      .catch(function(){ box.checked = !box.checked; });
+  });
+
   document.addEventListener('click', function(e){
     if(e.metaKey||e.ctrlKey||e.shiftKey||e.button) return;
     var a = e.target.closest('a');
@@ -588,6 +647,7 @@ SSE_SCRIPT = """<script>
     var u = new URL(a.href, location.href);
     if(u.origin !== location.origin) return;                 // external link → default
     if(u.pathname !== '/' && u.pathname !== '/waves' && u.pathname !== '/prs'
+       && u.pathname !== '/today'
        && !u.pathname.startsWith('/issue/')
        && !u.pathname.startsWith('/status/')) return;
     if(u.pathname === location.pathname && u.hash) return;    // in-page anchor → default
@@ -778,6 +838,17 @@ def prs_icon():
                 'stroke="#6e7178" stroke-width="1.4" stroke-linecap="round"/>')
 
 
+def today_icon():
+    """A small checklist — two ticks over two lines — the marker for the Today day
+    view, drawn in the Waves/Pull-requests gray stroke language."""
+    return _svg('<path d="M2.3 5 L3.7 6.4 L6.2 3.7" fill="none" stroke="#6e7178" '
+                'stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>'
+                '<path d="M2.3 10.4 L3.7 11.8 L6.2 9.1" fill="none" stroke="#6e7178" '
+                'stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>'
+                '<path d="M8.6 4.9 h5 M8.6 10.3 h5" stroke="#6e7178" stroke-width="1.4" '
+                'stroke-linecap="round"/>')
+
+
 def progress_icon(done, total):
     """Fractional pie showing a wave's completion (done/total), muted track behind."""
     frac = (done / total) if total else 0
@@ -854,9 +925,16 @@ def sidebar_html(active_status=None):
     # carries its style inline so the shared CSS (and no-lens builds) stays byte-identical.
     waves = {str(it["wave"]) for it in issues if it.get("wave")}
     pr_issues = [it for it in issues if _pr_refs(it)]
-    if waves or pr_issues:
+    todo_files = list_todo_files()           # the Today view exists once a todos file does
+    if waves or pr_issues or todo_files:
         parts.append('<div style="height:1px;background:var(--line);margin:9px 8px 8px">'
                      '</div>')
+    if todo_files:                           # a day view over todos/<person>.md
+        todos = [parse_todo(p) for p in todo_files]
+        cls = "nav-row active" if active_status == "Today" else "nav-row"
+        parts.append(
+            f'<a class="{cls}" href="{url_for("today")}">{today_icon()}'
+            f'Today<span class="n">{_todo_open_count(todos)}</span></a>')
     if waves:                                # the Waves view only exists once a wave is set
         cls = "nav-row active" if active_status == "Waves" else "nav-row"
         parts.append(
@@ -1072,7 +1150,8 @@ def render_project_page(live=True):
     path = ROOT / "project.md"
     text = path.read_text(encoding="utf-8") if path.exists() else "# Project\n"
     meta, body = parse_doc(text)
-    main = (render_active()
+    main = (render_today_panel()
+            + render_active()
             + '<article class="md">' + render_blocks(body) + "</article>")
     return page(meta.get("title", "slate"), sidebar_html(None), main, live=live)
 
@@ -1801,7 +1880,233 @@ def render_prs_page(live=True):
 
 
 # --------------------------------------------------------------------------- #
-# Reorder write path (the one place the viewer writes markdown)
+# Day todos ("Ledger") — a day view over per-person todo files
+# --------------------------------------------------------------------------- #
+# Personal todos live in todos/<person>.md, one file per person so concurrent
+# pushers merge cleanly. Each file is dated `## YYYY-MM-DD` sections (newest
+# first) of plain `- [ ]` / `- [x]` items; `[[T-x]]` wikilinks in an item link to
+# the issue and define the day's working set. Two read surfaces — a Today panel on
+# the board (per person: today's items plus unchecked items carried from older
+# days) and a Today day view (grouped by date, newest first, each person's items
+# inside the day). One write path: ticking a checkbox flips that single line
+# between `- [ ]` and `- [x]` in its file (see apply_todo). Fail-soft: no todos
+# dir or no files → the view and panel simply don't appear.
+
+_TODO_DATE_RE = re.compile(r"^##\s+(\d{4}-\d{2}-\d{2})\s*$")
+_TODO_TASK_RE = re.compile(r"^\s*[-*+]\s+\[([ xX])\]\s+(.*)$")     # a task at any indent
+_TODO_TOPTASK_RE = re.compile(r"^[-*+]\s+\[([ xX])\]\s+(.*)$")     # a day's own item (col 0)
+_TODO_WIKILINK_RE = re.compile(r"\[\[([^\]|]+)(?:\|[^\]]+)?\]\]")
+
+
+def _todo_line_hash(line):
+    """Stable id for a todo line: a short sha1 of its full stripped text. Ticking a
+    box sends this hash; the server flips the one file line that hashes to it. The
+    marker is part of the text, so a `- [ ]` and its `- [x]` hash differently — the
+    toggle round-trips the current state, and a drifted line simply won't match."""
+    return hashlib.sha1(line.strip().encode("utf-8")).hexdigest()[:16]
+
+
+def list_todo_files():
+    return sorted(TODOS.glob("*.md")) if TODOS.exists() else []
+
+
+def parse_todo(path):
+    """One todos/<person>.md → {'person', 'path', 'sections'}, sections newest first.
+    Each section is {'date', 'items'} and each item {'checked', 'text', 'hash',
+    'detail'}. Only `## YYYY-MM-DD` headings open a section; a day's items are the
+    column-0 `- [ ]` / `- [x]` lines. Lines indented under an item (until the next
+    item, or a blank line then unindented content) are that item's detail block —
+    long instructions the surfaces show collapsed. The hash is of the item's own
+    first line only, so a detail block never affects check-off."""
+    meta, body = parse_doc(path.read_text(encoding="utf-8"))
+    person = str(meta.get("person") or path.stem)
+    sections, cur, item = [], None, None
+    for raw in body.split("\n"):
+        stripped = raw.strip()
+        dm = _TODO_DATE_RE.match(stripped)
+        if dm:
+            cur = {"date": dm.group(1), "items": []}
+            sections.append(cur)
+            item = None
+            continue
+        tm = _TODO_TOPTASK_RE.match(raw)
+        if tm and cur is not None:
+            item = {"checked": tm.group(1).lower() == "x",
+                    "text": tm.group(2).strip(),
+                    "hash": _todo_line_hash(raw),
+                    "detail": []}
+            cur["items"].append(item)
+            continue
+        if item is not None:
+            if stripped == "":
+                item["detail"].append("")        # provisional; trailing blanks trimmed on render
+                continue
+            if raw[:1] in (" ", "\t"):
+                item["detail"].append(raw)        # indented → this item's instructions
+                continue
+            item = None                           # unindented, non-item → the detail block ends
+    sections.sort(key=lambda s: s["date"], reverse=True)
+    return {"person": person, "path": path, "sections": sections}
+
+
+def _todo_open_count(todos):
+    """Sidebar badge: unchecked items on the newest day across everyone — the day's
+    still-open working set."""
+    by_date = {}
+    for t in todos:
+        for sec in t["sections"]:
+            by_date.setdefault(sec["date"], []).extend(sec["items"])
+    if not by_date:
+        return 0
+    return sum(1 for it in by_date[max(by_date)] if not it["checked"])
+
+
+def _todo_detail_html(detail):
+    """An item's indented instruction lines → a collapsible block under its line, or
+    '' when there are none. The lines are dedented and run through render_blocks, so
+    prose, lists and `[[T-x]]` wikilinks all render as normal markdown. Kept out of
+    the check-off hash entirely — details can be as long as they need to be."""
+    lines = list(detail or [])
+    while lines and not lines[-1].strip():
+        lines.pop()
+    if not lines:
+        return ""
+    md = render_blocks(textwrap.dedent("\n".join(lines)))
+    return (f'<details class="todo-detail"><summary>instructions</summary>'
+            f'<div class="md">{md}</div></details>')
+
+
+def _todo_item_html(person, item, trailer=""):
+    """One live checkbox line, with any detail block collapsed beneath it. The box
+    carries the person and the line hash the /todo write path needs; `text` runs
+    through render_inline so `[[T-x]]` wikilinks and inline formatting resolve exactly
+    as they do elsewhere. `trailer` is optional muted content pinned after the text
+    (the carried-forward origin date)."""
+    cls = "task todo-item done" if item["checked"] else "task todo-item"
+    checked = " checked" if item["checked"] else ""
+    return (f'<li class="{cls}">'
+            f'<input type="checkbox" class="todo-box"{checked} '
+            f'data-person="{html.escape(person, quote=True)}" '
+            f'data-hash="{item["hash"]}">'
+            f'<div class="todo-body"><span class="todo-text">'
+            f'{render_inline(item["text"])}{trailer}</span>'
+            f'{_todo_detail_html(item.get("detail"))}</div></li>')
+
+
+def _todo_linked_issues(items):
+    """Distinct issue ids wikilinked from a set of items, in first-seen order — the
+    day's working set of issues."""
+    ids = []
+    for it in items:
+        for raw in _TODO_WIKILINK_RE.findall(it["text"]):
+            i = raw.strip()
+            if i and i not in ids:
+                ids.append(i)
+    return ids
+
+
+def _todo_links_row(items):
+    """A muted chip row of the issues a day's items link, each to its issue page. ''
+    when the day links none."""
+    ids = _todo_linked_issues(items)
+    if not ids:
+        return ""
+    chips = "".join(f'<a href="{url_for("issue", i)}">{html.escape(i)}</a>' for i in ids)
+    return f'<div class="todo-links">{chips}</div>'
+
+
+def render_today_panel():
+    """The board's Today panel: one block per person carrying that person's newest-day
+    items, then any unchecked items carried forward from older days (each tagged with
+    its origin date, muted). Checked items from older days stay out — history lives in
+    the file. '' when there are no todos, so the panel is simply absent."""
+    blocks = []
+    for t in (parse_todo(p) for p in list_todo_files()):
+        if not t["sections"]:
+            continue
+        rows = [_todo_item_html(t["person"], it) for it in t["sections"][0]["items"]]
+        for sec in t["sections"][1:]:
+            for it in sec["items"]:
+                if not it["checked"]:
+                    trailer = f'<span class="todo-carried">{html.escape(sec["date"])}</span>'
+                    rows.append(_todo_item_html(t["person"], it, trailer))
+        if rows:
+            blocks.append(f'<div class="todo-person"><div class="todo-name">'
+                          f'{html.escape(t["person"])}</div>'
+                          f'<ul class="todo-list">{"".join(rows)}</ul></div>')
+    if not blocks:
+        return ""
+    return (f'<section class="active today"><div class="group-h">Today</div>'
+            f'{"".join(blocks)}</section>')
+
+
+def render_today_page(live=True):
+    """The Today day view: every todo day, newest first. Each day heads with its date
+    and a muted chip row of the issues its items link (the day's working set), then one
+    block per person with items on that day, checkboxes live."""
+    todos = [parse_todo(p) for p in list_todo_files()]
+    by_date = {}                             # date -> [(person, items)], person order = file order
+    for t in todos:
+        for sec in t["sections"]:
+            by_date.setdefault(sec["date"], []).append((t["person"], sec["items"]))
+    head = (f'<div class="view-head"><h1>{today_icon()}Today'
+            f'<span class="vcount">{_todo_open_count(todos)}</span></h1></div>')
+    parts = []
+    for d in sorted(by_date, reverse=True):
+        day = by_date[d]
+        links = _todo_links_row([it for _, items in day for it in items])
+        blocks = []
+        for person, items in day:
+            rows = "".join(_todo_item_html(person, it) for it in items)
+            blocks.append(f'<div class="todo-person"><div class="todo-name">'
+                          f'{html.escape(person)}</div>'
+                          f'<ul class="todo-list">{rows}</ul></div>')
+        parts.append(f'<section class="today-day"><div class="group-h">{html.escape(d)}</div>'
+                     f'{links}{"".join(blocks)}</section>')
+    body = "".join(parts) if parts else '<p class="empty">No todos.</p>'
+    return page(f"Today · {project_title()}", sidebar_html("Today"), head + body, live=live)
+
+
+class TodoConflict(Exception):
+    """The clicked line no longer matches by hash — edited, or already toggled by
+    another push. Zero or several matches; the write is refused (HTTP 409)."""
+
+
+def find_todo(person):
+    """The todos file for a person: matched on the file's `person:` field or its stem.
+    Client input never builds a path directly (no traversal); we enumerate and match."""
+    for p in list_todo_files():
+        meta, _ = parse_doc(p.read_text(encoding="utf-8"))
+        if str(meta.get("person") or p.stem) == person or p.stem == person:
+            return p
+    return None
+
+
+def apply_todo(person, line_hash, done):
+    """Flip one todo line between `- [ ]` and `- [x]`. The line is found by hashing
+    every task line in the person's file and matching `line_hash`; exactly one match
+    is rewritten, zero or several raise TodoConflict (409) and write nothing. Only the
+    checkbox marker changes — the rest of the line, and every other line, is verbatim."""
+    if not isinstance(person, str) or not isinstance(line_hash, str):
+        raise ValueError("person and line_hash must be strings")
+    if not isinstance(done, bool):
+        raise ValueError("done must be a boolean")
+    p = find_todo(person)
+    if p is None:
+        raise ValueError(f"unknown person {person!r}")
+    lines = p.read_text(encoding="utf-8").split("\n")
+    matches = [i for i, ln in enumerate(lines)
+               if _TODO_TASK_RE.match(ln) and _todo_line_hash(ln) == line_hash]
+    if len(matches) != 1:
+        raise TodoConflict(
+            f"{len(matches)} lines in {p.name} match that hash; expected exactly 1")
+    i = matches[0]
+    lines[i] = re.sub(r"\[[ xX]\]", "[x]" if done else "[ ]", lines[i], count=1)
+    p.write_text("\n".join(lines), encoding="utf-8")
+
+
+# --------------------------------------------------------------------------- #
+# Reorder write path (drag-to-reorder rewrites `order:` on the affected issues)
 # --------------------------------------------------------------------------- #
 
 def _rewrite_meta(path, updates):
@@ -1870,7 +2175,7 @@ def _watched_files():
     files = []
     if (ROOT / "project.md").exists():
         files.append(ROOT / "project.md")
-    for d in (ISSUES, TEMPLATES):
+    for d in (ISSUES, TEMPLATES, TODOS):
         if d.exists():
             files.extend(d.glob("*.md"))
     return files
@@ -1964,6 +2269,10 @@ class Handler(BaseHTTPRequestHandler):
             if any(_pr_refs(it) for it in list_issues()):
                 return self._html(render_prs_page())
             return self.send_error(404)
+        if path == "/today":
+            if list_todo_files():
+                return self._html(render_today_page())
+            return self.send_error(404)
         m = re.match(r"^/status/([a-z0-9-]+)$", path)
         if m:
             status = {slug(s): s for s in STATUS_ORDER}.get(m.group(1))
@@ -1992,7 +2301,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         path = urllib.parse.urlparse(self.path).path
-        if path not in ("/reorder", "/status"):
+        if path not in ("/reorder", "/status", "/todo"):
             return self.send_error(404)
         ctype = (self.headers.get("Content-Type") or "").split(";")[0].strip()
         if not self._local() or ctype != "application/json":
@@ -2002,8 +2311,12 @@ class Handler(BaseHTTPRequestHandler):
             payload = json.loads(self.rfile.read(n))
             if path == "/reorder":
                 apply_reorder(payload["status"], payload["ids"])
+            elif path == "/todo":
+                apply_todo(payload["person"], payload["line_hash"], payload["done"])
             else:
                 apply_status(payload["id"], payload["status"])
+        except TodoConflict as e:
+            return self.send_error(409, explain=str(e))
         except (ValueError, KeyError, TypeError) as e:
             return self.send_error(400, explain=str(e))
         self.send_response(204)
@@ -2064,6 +2377,9 @@ def build(outdir):
         views += 1
     if any(_pr_refs(it) for it in issues):
         (out / "prs.html").write_text(render_prs_page(live=False), encoding="utf-8")
+        views += 1
+    if list_todo_files():
+        (out / "today.html").write_text(render_today_page(live=False), encoding="utf-8")
         views += 1
     count = 0
     for it in issues:

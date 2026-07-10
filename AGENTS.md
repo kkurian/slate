@@ -10,6 +10,9 @@ within a status view (rewrites `order`) and the status chip on an issue page
 
 - `project.md` — project overview and board.
 - `issues/<ID>.md` — one file per issue.
+- `todos/<person>.md` — optional per-person day todos: `person:` frontmatter, then
+  dated `## YYYY-MM-DD` sections of `- [ ]` / `- [x]` items with `[[ID]]` wikilinks;
+  drives the Today panel and the Today day view.
 - `templates/issue.md` — copy this to create an issue.
 - `slate.py` — the viewer. You do not need to run it to read or edit issues.
 
