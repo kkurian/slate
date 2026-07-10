@@ -13,6 +13,8 @@ within a status view (rewrites `order`) and the status chip on an issue page
 - `todos/<person>.md` — optional per-person day todos: `person:` frontmatter, then
   dated `## YYYY-MM-DD` sections of `- [ ]` / `- [x]` items with `[[ID]]` wikilinks;
   drives the Today panel and the Today day view.
+- `days/YYYY-MM-DD.md` — optional day file naming the issues in play that day; when
+  today's exists, the Today surfaces pivot to an issue spine (see Day files below).
 - `templates/issue.md` — copy this to create an issue.
 - `slate.py` — the viewer. You do not need to run it to read or edit issues.
 
@@ -74,6 +76,34 @@ What this is and why it matters. Link issues with [[T-2]] wikilinks.
 - Check acceptance-criteria boxes (`- [x]`) as they are met.
 - Set `updated` to today's date on any edit.
 - Record decisions and findings under Notes.
+
+## Day files
+
+`days/YYYY-MM-DD.md` names the issues in play on a given day. Optional `title:`
+frontmatter labels the day; a top-level list line beginning with an issue wikilink
+declares the issue, with the text after the link as the intent:
+
+```markdown
+---
+title: Ship the retry path
+---
+
+- [[T-12]] — verify syncs land clean
+- [[T-15]]
+
+## Notes
+Cut scope before adding scope today.
+```
+
+- **Put an issue in play** by adding a `- [[T-x]] — intent` line to today's day
+  file (create the file if it does not exist). Never signal "in play today" by
+  moving an issue's `wave:` — waves are plan phase, not execution days.
+- **Take an issue out of play** by deleting its line.
+- Day files are append-friendly under concurrent pushes: one file per day, and
+  adding lines in different regions (a new entry vs. a note) merges cleanly.
+- Everything that is not an entry line is notes, rendered as markdown on the day
+  page. An entry naming an issue that does not exist renders fail-soft and is
+  flagged by the board and `doctor` — fix the wikilink or create the issue.
 
 ## Audit
 

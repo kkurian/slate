@@ -2,7 +2,8 @@
 """slate — a web view of a task tracker kept in plain markdown.
 
 The tracker lives in plain markdown (project.md + issues/*.md, plus optional
-personal day todos in todos/*.md). This file is a *viewer* with three deliberate
+personal day todos in todos/*.md and day files in days/YYYY-MM-DD.md naming the
+issues in play that day). This file is a *viewer* with three deliberate
 write paths: dragging issue rows within a status view to reorder them (Esc
 cancels) rewrites the `order:` frontmatter of the affected issues, picking a
 state from an issue's status chip rewrites its `status:`, and ticking a todo
@@ -47,6 +48,7 @@ ROOT = Path(__file__).resolve().parent          # the plan/ directory
 ISSUES = ROOT / "issues"
 TEMPLATES = ROOT / "templates"
 TODOS = ROOT / "todos"
+DAYS = ROOT / "days"
 PORT = int(os.environ.get("SLATE_PORT", "8787"))
 
 # 'live' (server) generates /issue/<id> links; 'static' (build) generates <id>.html
@@ -103,6 +105,8 @@ def url_for(kind, ident=None):
             return "prs.html"
         if kind == "today":
             return "today.html"
+        if kind == "day":
+            return f"day-{ident}.html"
         return f"{ident}.html"
     if kind == "project":
         return "/"
@@ -114,6 +118,8 @@ def url_for(kind, ident=None):
         return "/prs"
     if kind == "today":
         return "/today"
+    if kind == "day":
+        return f"/day/{ident}"
     return f"/issue/{ident}"
 
 
@@ -925,11 +931,14 @@ def sidebar_html(active_status=None):
     # carries its style inline so the shared CSS (and no-lens builds) stays byte-identical.
     waves = {str(it["wave"]) for it in issues if it.get("wave")}
     pr_issues = [it for it in issues if _pr_refs(it)]
-    todo_files = list_todo_files()           # the Today view exists once a todos file does
-    if waves or pr_issues or todo_files:
+    # The Today view exists once a todos file does — or once today has a day file,
+    # even with no todos yet (the day's spine is worth showing on its own).
+    todo_files = list_todo_files()
+    day_today = read_day(time.strftime("%Y-%m-%d")) is not None
+    if waves or pr_issues or todo_files or day_today:
         parts.append('<div style="height:1px;background:var(--line);margin:9px 8px 8px">'
                      '</div>')
-    if todo_files:                           # a day view over todos/<person>.md
+    if todo_files or day_today:
         todos = [parse_todo(p) for p in todo_files]
         cls = "nav-row active" if active_status == "Today" else "nav-row"
         parts.append(
@@ -971,9 +980,11 @@ def _idle_days(updated):
     return (date.today() - date(t.tm_year, t.tm_mon, t.tm_mday)).days
 
 
-def issue_row(it, drag=False):
+def issue_row(it, drag=False, wave_chip=False):
     """One full-width list row: icons, id, title; idle age, PR state and assignee
-    pinned right."""
+    pinned right. wave_chip adds a muted wave tag beside the title — the day views
+    ask for it (a day's spine cuts across waves, so each row names its own); every
+    other surface renders without it, byte-identical to before."""
     attrs = (f' draggable="true" data-id="{html.escape(it["id"], quote=True)}"'
              if drag else "")
     rev = review_row_glyph(_pr_refs(it))
@@ -999,12 +1010,14 @@ def issue_row(it, drag=False):
         doc = (f'<span class="hold" title="review hold: '
                f'{html.escape(verdict[2], quote=True)}">held</span>')
     disc = assignee_icon(it.get("assignee", ""))
+    wv = (f'<span class="mini">wave {html.escape(str(it["wave"]))}</span>'
+          if wave_chip and it.get("wave") else "")
     return (
         f'<a class="item"{attrs} href="{url_for("issue", it["id"])}">'
         f'{GRIP if drag else ""}'
         f'{status_icon(it["status"])}{priority_icon(it["priority"])}'
         f'<span class="iid">{html.escape(it["id"])}</span>'
-        f'<span class="ititle">{html.escape(it["title"])}</span>{dot}{idle}{doc}{rev}{disc}</a>'
+        f'<span class="ititle">{html.escape(it["title"])}</span>{wv}{dot}{idle}{doc}{rev}{disc}</a>'
     )
 
 
@@ -2016,10 +2029,19 @@ def _todo_links_row(items):
 
 
 def render_today_panel():
-    """The board's Today panel: one block per person carrying that person's newest-day
-    items, then any unchecked items carried forward from older days (each tagged with
-    its origin date, muted). Checked items from older days stay out — history lives in
-    the file. '' when there are no todos, so the panel is simply absent."""
+    """The board's Today panel. With a day file for today, issues are the spine:
+    the file's in-play issues in order, intents beneath, todo items nested under
+    the issue they link (see _day_spine). Without one, the per-person fallback:
+    one block per person carrying that person's newest-day items, then any
+    unchecked items carried forward from older days (each tagged with its origin
+    date, muted). Checked items from older days stay out — history lives in the
+    file. '' when there is neither, so the panel is simply absent."""
+    today = time.strftime("%Y-%m-%d")
+    day = read_day(today)
+    if day is not None:
+        _, entries, _ = day
+        return (f'<section class="active today"><div class="group-h">Today</div>'
+                f'{_day_doctor_strip(entries)}{_day_spine(today, entries)}</section>')
     blocks = []
     for t in (parse_todo(p) for p in list_todo_files()):
         if not t["sections"]:
@@ -2041,9 +2063,15 @@ def render_today_panel():
 
 
 def render_today_page(live=True):
-    """The Today day view: every todo day, newest first. Each day heads with its date
-    and a muted chip row of the issues its items link (the day's working set), then one
-    block per person with items on that day, checkboxes live."""
+    """The Today view. With a day file for today, it is that day's page — title,
+    issue spine, notes (see render_day_page); past days with files live at
+    /day/<date>. Without one, the fallback: every todo day, newest first, each day
+    headed with its date and a muted chip row of the issues its items link (the
+    day's working set), then one block per person with items on that day,
+    checkboxes live."""
+    day_html = render_day_page(time.strftime("%Y-%m-%d"), live=live)
+    if day_html is not None:
+        return day_html
     todos = [parse_todo(p) for p in list_todo_files()]
     by_date = {}                             # date -> [(person, items)], person order = file order
     for t in todos:
@@ -2103,6 +2131,173 @@ def apply_todo(person, line_hash, done):
     i = matches[0]
     lines[i] = re.sub(r"\[[ xX]\]", "[x]" if done else "[ ]", lines[i], count=1)
     p.write_text("\n".join(lines), encoding="utf-8")
+
+
+# --------------------------------------------------------------------------- #
+# Day files — days/YYYY-MM-DD.md names the issues in play that day
+# --------------------------------------------------------------------------- #
+# One file per day, the date its filename stem; optional frontmatter (title:
+# labels the day). A top-level list item beginning with an issue wikilink puts
+# that issue in play — text after the link (optionally set off with an em dash)
+# is the intent line. Everything else in the body is notes, rendered as markdown.
+# When today's file exists, the board's Today panel and the Today view pivot to
+# an issue spine: one row per in-play issue, intent beneath, that issue's todo
+# items (from every todos/*.md section dated that day) nested under it. Without
+# a day file the per-person todo panel remains, unchanged. Display-only — the
+# viewer never writes a day file; a referenced issue that does not exist renders
+# as a plain wikilink and the doctor flags it, fail-soft like everything else.
+
+_DAY_STEM_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+# `- [[T-1]] — intent` at column 0; a leading checkbox is tolerated and ignored
+# (treated as plain), and `[[T-1|label]]` still declares T-1.
+_DAY_ENTRY_RE = re.compile(
+    r"^[-*+]\s+(?:\[[ xX]\]\s+)?\[\[([^\]|]+)(?:\|[^\]]+)?\]\]\s*(.*)$")
+
+
+def list_day_files():
+    if not DAYS.exists():
+        return []
+    return sorted(p for p in DAYS.glob("*.md") if _DAY_STEM_RE.match(p.stem))
+
+
+def read_day(date_str):
+    """days/<date_str>.md → (meta, entries, notes) or None when absent. entries are
+    (issue_id, intent) pairs from the top-level wikilink-led list lines, in file
+    order; notes is the body with those lines removed (rendered as markdown)."""
+    if not _DAY_STEM_RE.match(str(date_str)):
+        return None
+    p = DAYS / f"{date_str}.md"
+    if not p.exists():
+        return None
+    meta, body = parse_doc(p.read_text(encoding="utf-8"))
+    entries, notes = [], []
+    for raw in body.split("\n"):
+        m = _DAY_ENTRY_RE.match(raw)
+        if m:
+            intent = re.sub(r"^[—–-]\s*", "", m.group(2).strip()).strip()
+            entries.append((m.group(1).strip(), intent))
+        else:
+            notes.append(raw)
+    return meta, entries, "\n".join(notes)
+
+
+def _day_unknown_ids(entries):
+    """In-play ids that match no issue on the board, first-seen order — the
+    doctor's day finding."""
+    known = {it["id"] for it in list_issues()}
+    out = []
+    for iid, _ in entries:
+        if iid not in known and iid not in out:
+            out.append(iid)
+    return out
+
+
+def _day_doctor_strip(entries):
+    """The day view's lead finding when the day file names issues that do not
+    exist — same register as the review view's strip. '' when all ids resolve."""
+    unknown = _day_unknown_ids(entries)
+    if not unknown:
+        return ""
+    ids = ", ".join(html.escape(i) for i in unknown)
+    n = len(unknown)
+    noun = "an issue that does not exist" if n == 1 else f"{n} issues that do not exist"
+    return (f'<div class="doctor-strip">the day file names {noun} '
+            f'on the board: {ids}</div>')
+
+
+def _day_todo_groups(date_str, in_play):
+    """Partition every todo item dated date_str by the first issue its text
+    wikilinks: (linked, also, unlinked) — linked maps issue id → [(person, item)],
+    also lists ids seen only in todos (not in the day file) in first-seen order,
+    unlinked collects (person, item) pairs whose text links no issue."""
+    linked, also, unlinked = {}, [], []
+    for t in (parse_todo(p) for p in list_todo_files()):
+        for sec in t["sections"]:
+            if sec["date"] != date_str:
+                continue
+            for item in sec["items"]:
+                ids = [i.strip() for i in _TODO_WIKILINK_RE.findall(item["text"])]
+                if ids:
+                    linked.setdefault(ids[0], []).append((t["person"], item))
+                    if ids[0] not in in_play and ids[0] not in also:
+                        also.append(ids[0])
+                else:
+                    unlinked.append((t["person"], item))
+    return linked, also, unlinked
+
+
+def _day_issue_block(iid, intent, pairs, muted=False):
+    """One spine entry: the issue's own row (wave chip on — the spine cuts across
+    waves), the intent line muted beneath, then the issue's todo items nested on a
+    thread rule, each tagged with its person. An id with no issue file renders as a
+    plain wikilink row (the link 404s until the issue exists; the doctor strip
+    carries the finding). muted dims the row only — its todo items stay actionable."""
+    it = next((x for x in list_issues() if x["id"] == iid), None)
+    if it:
+        row = issue_row(it, wave_chip=True)
+    else:
+        row = (f'<div class="item">{render_inline(f"[[{iid}]]")}'
+               f'<span class="ititle" style="color:var(--faint)">not on the board'
+               f'</span></div>')
+    if muted:
+        row = f'<div style="opacity:.55">{row}</div>'
+    parts = [row]
+    if intent:
+        parts.append(f'<div class="pr-sub">{render_inline(intent)}</div>')
+    if pairs:
+        rows = "".join(
+            _todo_item_html(person, item,
+                            trailer=f'<span class="todo-carried">'
+                                    f'{html.escape(person)}</span>')
+            for person, item in pairs)
+        parts.append(f'<div class="rvs"><ul class="todo-list">{rows}</ul></div>')
+    return f'<div class="todo-person">{"".join(parts)}</div>'
+
+
+def _day_spine(date_str, entries):
+    """The issue-spined layout both day surfaces share: the day file's issues in
+    file order, each with its intent and its people's todo items; then muted 'Also
+    in play' rows for issues only the todos mention; then per-person items that
+    link no issue."""
+    in_play = {iid for iid, _ in entries}
+    linked, also, unlinked = _day_todo_groups(date_str, in_play)
+    parts = [_day_issue_block(iid, intent, linked.get(iid, []))
+             for iid, intent in entries]
+    if also:
+        parts.append('<div class="group-h">Also in play</div>')
+        parts += [_day_issue_block(i, "", linked.get(i, []), muted=True) for i in also]
+    if unlinked:
+        byp = {}
+        for person, item in unlinked:
+            byp.setdefault(person, []).append(item)
+        blocks = "".join(
+            f'<div class="todo-person"><div class="todo-name">{html.escape(p)}</div>'
+            f'<ul class="todo-list">{"".join(_todo_item_html(p, it) for it in items)}'
+            f'</ul></div>'
+            for p, items in byp.items())
+        parts.append(f'<div class="group-h">Other todos</div>{blocks}')
+    return "".join(parts)
+
+
+def render_day_page(date_str, live=True):
+    """A day file's page: the day's title (or the date) heading, the doctor strip
+    when ids don't resolve, the issue spine, then the file's notes as markdown.
+    /today serves today's; /day/<date> serves any day that has a file. None when
+    no file exists for the date, so callers can 404."""
+    day = read_day(date_str)
+    if day is None:
+        return None
+    meta, entries, notes = day
+    is_today = date_str == time.strftime("%Y-%m-%d")
+    title = str(meta.get("title") or ("Today" if is_today else date_str))
+    head = (f'<div class="view-head"><h1>{today_icon()}{html.escape(title)}'
+            f'<span class="vcount">{date_str}</span></h1></div>')
+    notes_html = (f'<article class="md">{render_blocks(notes)}</article>'
+                  if notes.strip() else "")
+    return page(f"{title} · {project_title()}",
+                sidebar_html("Today" if is_today else None),
+                head + _day_doctor_strip(entries) + _day_spine(date_str, entries)
+                + notes_html, live=live)
 
 
 # --------------------------------------------------------------------------- #
@@ -2175,7 +2370,7 @@ def _watched_files():
     files = []
     if (ROOT / "project.md").exists():
         files.append(ROOT / "project.md")
-    for d in (ISSUES, TEMPLATES, TODOS):
+    for d in (ISSUES, TEMPLATES, TODOS, DAYS):
         if d.exists():
             files.extend(d.glob("*.md"))
     return files
@@ -2270,8 +2465,14 @@ class Handler(BaseHTTPRequestHandler):
                 return self._html(render_prs_page())
             return self.send_error(404)
         if path == "/today":
-            if list_todo_files():
+            if list_todo_files() or read_day(time.strftime("%Y-%m-%d")):
                 return self._html(render_today_page())
+            return self.send_error(404)
+        m = re.match(r"^/day/(\d{4}-\d{2}-\d{2})$", path)
+        if m:
+            body = render_day_page(m.group(1))
+            if body is not None:
+                return self._html(body)
             return self.send_error(404)
         m = re.match(r"^/status/([a-z0-9-]+)$", path)
         if m:
@@ -2378,8 +2579,14 @@ def build(outdir):
     if any(_pr_refs(it) for it in issues):
         (out / "prs.html").write_text(render_prs_page(live=False), encoding="utf-8")
         views += 1
-    if list_todo_files():
+    if list_todo_files() or read_day(time.strftime("%Y-%m-%d")):
         (out / "today.html").write_text(render_today_page(live=False), encoding="utf-8")
+        views += 1
+    for p in list_day_files():
+        day_html = render_day_page(p.stem, live=False)
+        if day_html is None:                 # file vanished between glob and render
+            continue
+        (out / f"day-{p.stem}.html").write_text(day_html, encoding="utf-8")
         views += 1
     count = 0
     for it in issues:
@@ -2485,7 +2692,17 @@ def doctor():
         else:
             indeterminate.append((it, merged, extra))
     _print_doctor(flagged, held, indeterminate)
-    return 1 if flagged else 0
+    # Today's day file, when present, must name issues that exist — the same
+    # check the day surfaces show as a strip. Fail-soft: no file, no check.
+    today = time.strftime("%Y-%m-%d")
+    day = read_day(today)
+    day_unknown = _day_unknown_ids(day[1]) if day else []
+    if day_unknown:
+        ids = ", ".join(day_unknown)
+        print(f"\nslate doctor: today's day file (days/{today}.md) names "
+              f"{len(day_unknown)} issue(s) that do not exist on the board: {ids}")
+        print("  Fix the wikilink, or create the missing issue file.")
+    return 1 if flagged or day_unknown else 0
 
 
 def _pr_list(nums):
