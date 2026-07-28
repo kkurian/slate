@@ -40,8 +40,20 @@ created: 2026-06-19
 updated: 2026-06-19
 ---
 
-## Description
-What this is and why it matters. Link issues with [[T-2]] wikilinks.
+## Background
+What a reader with no context needs first. Link issues with [[T-2]] wikilinks.
+
+## Problem
+What is wrong or missing today, and the evidence for it.
+
+## Proposed change
+The concrete work to be done.
+
+## Alternatives
+Other approaches considered, and why they lose.
+
+## Complexity
+Sonnet: mechanical rename across many files, no design decisions.
 
 ## Acceptance criteria
 - [ ] A concrete, checkable outcome
@@ -60,6 +72,9 @@ What this is and why it matters. Link issues with [[T-2]] wikilinks.
 - `order` (optional): integer position within the status group, lowest first. Issues
   without it sort by id after the ordered ones. Usually set by dragging in the
   viewer; you may also set or renumber it directly.
+- `Complexity` names the least capable agent that can carry the work and why —
+  complexity is what routes an issue, not how much of it there is. A thousand-file
+  rename is Sonnet work; one function whose design is unsettled is not.
 - Reference another issue with a `[[T-2]]` wikilink.
 
 ## Create an issue

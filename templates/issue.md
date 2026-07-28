@@ -13,10 +13,27 @@ created: 2026-06-19
 updated: 2026-06-19
 ---
 
-## Description
+## Background
 
-What is this and why does it matter? One or two paragraphs. Link related issues
-with `[[T-2]]` wikilinks.
+What a reader with no context needs to know first. Link related issues with
+`[[T-2]]` wikilinks.
+
+## Problem
+
+What is wrong or missing today, and the evidence for it.
+
+## Proposed change
+
+The concrete work to be done.
+
+## Alternatives
+
+Other approaches considered, and why they lose.
+
+## Complexity
+
+The least capable agent that can carry this — Haiku, Sonnet, Opus, Fable, or a
+human — and what about the work demands that tier.
 
 ## Acceptance criteria
 

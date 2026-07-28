@@ -149,8 +149,20 @@ assignee: Ada
 labels: [backend]
 ---
 
-## Description
-What this is and why it matters. Link issues with [[T-2]] wikilinks.
+## Background
+What a reader with no context needs first. Link issues with [[T-2]] wikilinks.
+
+## Problem
+What is wrong or missing today, and the evidence for it.
+
+## Proposed change
+The concrete work to be done.
+
+## Alternatives
+Other approaches considered, and why they lose.
+
+## Complexity
+Sonnet: mechanical rename across many files, no design decisions.
 
 ## Acceptance criteria
 - [ ] A concrete, checkable outcome
