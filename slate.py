@@ -96,6 +96,11 @@ def slug(s):
 
 
 def url_for(kind, ident=None):
+    # Ids come from issue and day file contents; percent-encode them so a crafted id
+    # cannot break out of the href attribute it is placed in. Ordinary ids (SF-12,
+    # 2026-11-20) are unchanged.
+    if ident is not None and kind not in ("project", "status", "board", "waves", "prs", "today"):
+        ident = urllib.parse.quote(str(ident), safe="")
     if MODE == "static":
         if kind == "project":
             return "index.html"
