@@ -59,6 +59,8 @@ STATUS_ORDER = ["In Progress", "In Review", "Todo", "Backlog", "Done", "Canceled
 # Lifecycle order — how the status menu lists them.
 LIFECYCLE = ["Backlog", "Todo", "In Progress", "In Review", "Done", "Canceled"]
 ALWAYS_SHOW = {"In Progress", "Todo", "Backlog"}
+# Board columns that always render, left to right — the workflow as it is walked.
+BOARD_COLUMNS = ["Backlog", "Todo", "In Progress", "In Review", "Done"]
 
 
 # --------------------------------------------------------------------------- #
@@ -99,6 +101,8 @@ def url_for(kind, ident=None):
             return "index.html"
         if kind == "status":
             return f"status-{slug(ident)}.html"
+        if kind == "board":
+            return "board.html"
         if kind == "waves":
             return "waves.html"
         if kind == "prs":
@@ -112,6 +116,8 @@ def url_for(kind, ident=None):
         return "/"
     if kind == "status":
         return f"/status/{slug(ident)}"
+    if kind == "board":
+        return "/board"
     if kind == "waves":
         return "/waves"
     if kind == "prs":
@@ -506,6 +512,49 @@ section.active .group-h{padding-left:0}
 @media (max-width:700px){
   .content{padding:32px 22px}
 }
+/* Board — every status a column, left to right in workflow order, each issue a
+   card. The board owns the viewport height so a long column scrolls inside
+   itself and the headers stay put; more columns than fit scroll sideways inside
+   the board, never the page. At phone width the sidebar folds into a strip above
+   and the columns stack, each still capped and scrolling within itself. New
+   classes only; the shared layout CSS stays untouched. */
+.content.wide{max-width:none;padding:42px 28px 52px}
+.kanban{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(190px,1fr);gap:10px;
+  height:calc(100vh - 142px);min-height:260px;overflow-x:auto}
+.kcol{display:flex;flex-direction:column;min-width:0;min-height:0;background:var(--sidebar);
+  border:1px solid var(--line);border-radius:9px}
+.kcol-h{display:flex;align-items:center;gap:8px;flex:none;padding:9px 11px;
+  border-bottom:1px solid var(--line);font-size:12.5px;font-weight:600;color:var(--ink)}
+.kcol-h .n{margin-left:auto;color:var(--faint);font-weight:500;font-size:12px;
+  font-variant-numeric:tabular-nums}
+.kcol-b{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:6px;
+  padding:7px}
+.kcol-b .empty{margin:4px 5px;font-size:12.5px}
+.kcard{display:flex;flex-direction:column;gap:5px;flex:none;padding:8px 10px 9px;
+  background:var(--panel);border:1px solid var(--line);border-radius:7px}
+.kcard:hover{border-color:rgba(255,255,255,.16)}
+.kcard:hover .ktitle{color:var(--ink)}
+.kcard-top{display:flex;align-items:center;gap:7px;min-height:17px}
+.kcard-top .kpri{display:inline-flex}
+.kcard-top .right{margin-left:auto;display:inline-flex;align-items:center;gap:7px}
+.ktitle{font-size:13px;line-height:1.45;color:#c4c6cc;overflow-wrap:anywhere;
+  display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:4;overflow:hidden}
+.kchips{display:flex;flex-wrap:wrap;gap:5px}
+.kchips .mini{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@media (max-width:700px){
+  .layout.stack{grid-template-columns:minmax(0,1fr)}
+  .layout.stack .sidebar{position:static;height:auto;display:flex;flex-wrap:wrap;
+    align-items:center;gap:2px 4px;padding:10px 8px;border-right:0;
+    border-bottom:1px solid var(--line)}
+  .layout.stack .brand{flex-basis:100%;padding-bottom:6px}
+  .layout.stack .nav-row .n{margin-left:2px}
+  .layout.stack .agents-live{margin-top:0}
+  .layout.stack .sash{display:none}
+  .content.wide{padding:20px 14px 60px}
+  .kanban{display:flex;flex-direction:column;height:auto;overflow-x:visible}
+  .kcol{flex:none}
+  .kcol-b{flex:none;max-height:62vh}
+}
 .foot{position:fixed;bottom:0;left:0;right:0;z-index:20;padding:10px 0;
   background:var(--bg);border-top:1px solid var(--line);
   font-size:12px;color:var(--faint);text-align:center}
@@ -599,6 +648,12 @@ SSE_SCRIPT = """<script>
   // SPA-style navigation: fetch the target and swap <div.layout> in place — no full reload.
   async function load(url, keepScroll){
     var y = window.scrollY;
+    // Inner scrollers (the board and its columns) hold their place across a live
+    // swap too, keyed by data-scroll — else every repaint would snap them to the top.
+    var inner = {};
+    if(keepScroll) document.querySelectorAll('[data-scroll]').forEach(function(el){
+      inner[el.dataset.scroll] = [el.scrollLeft, el.scrollTop];
+    });
     var res = await fetch(url);
     var html = await res.text();
     var doc = new DOMParser().parseFromString(html, 'text/html');
@@ -609,6 +664,10 @@ SSE_SCRIPT = """<script>
     if(st) document.querySelector('head style').replaceWith(document.importNode(st, true));
     document.querySelector('.layout').replaceWith(document.importNode(next, true));
     window.scrollTo(0, keepScroll ? y : 0);
+    document.querySelectorAll('[data-scroll]').forEach(function(el){
+      var at = inner[el.dataset.scroll];
+      if(at){ el.scrollLeft = at[0]; el.scrollTop = at[1]; }
+    });
   }
   // Status chip: pick a state from the dropdown → POST → files change → SSE re-renders.
   document.addEventListener('click', function(e){
@@ -653,7 +712,7 @@ SSE_SCRIPT = """<script>
     var u = new URL(a.href, location.href);
     if(u.origin !== location.origin) return;                 // external link → default
     if(u.pathname !== '/' && u.pathname !== '/waves' && u.pathname !== '/prs'
-       && u.pathname !== '/today'
+       && u.pathname !== '/today' && u.pathname !== '/board'
        && !u.pathname.startsWith('/issue/')
        && !u.pathname.startsWith('/status/')) return;
     if(u.pathname === location.pathname && u.hash) return;    // in-page anchor → default
@@ -826,6 +885,13 @@ def priority_icon(pri):
     return _svg("".join(bars))
 
 
+def board_icon():
+    """Three columns of unequal height — the marker for the Board view, drawn in
+    the Waves/Pull-requests gray stroke language."""
+    return _svg('<path d="M3.5 3.2 v9.6 M8 3.2 v5.6 M12.5 3.2 v7.6" fill="none" '
+                'stroke="#6e7178" stroke-width="2.6" stroke-linecap="round"/>')
+
+
 def waves_icon():
     """Stacked wavy lines — the marker for the Waves view."""
     return _svg('<path d="M2 6 q1.5 -2 3 0 t3 0 t3 0" fill="none" stroke="#6e7178" '
@@ -890,8 +956,13 @@ FOOTER = ('<footer class="foot">rendered by '
           '<a href="https://github.com/kkurian">kkurian</a>.</footer>')
 
 
-def page(title, sidebar, main, props="", live=True):
+def page(title, sidebar, main, props="", live=True, wide=False):
+    """wide is the Board's page shape: the main column drops its reading-width cap,
+    and the layout stacks the sidebar above the content at phone width. Every other
+    page renders without it, byte-identical to before."""
     cls = "layout" if props else "layout no-props"
+    if wide:
+        cls += " stack"
     props_html = f'<aside class="props">{props}</aside>' if props else ""
     sash = '<div class="sash" title="Drag to resize"></div>' if live else ""
     return (
@@ -899,7 +970,8 @@ def page(title, sidebar, main, props="", live=True):
         '<meta name=viewport content="width=device-width,initial-scale=1">'
         f"<title>{html.escape(title)}</title><style>{CSS}</style></head><body>"
         f'<div class="{cls}"><aside class="sidebar">{sidebar}</aside>'
-        f'<main class="content">{main}</main>{props_html}{sash}</div>'
+        f'<main class="{"content wide" if wide else "content"}">{main}</main>'
+        f'{props_html}{sash}</div>'
         f"{FOOTER}{SSE_SCRIPT if live else ''}</body></html>"
     )
 
@@ -924,20 +996,22 @@ def sidebar_html(active_status=None):
         parts.append(
             f'<a class="{cls}" href="{url_for("status", status)}">{status_icon(status)}'
             f'{html.escape(status)}<span class="n">{count}</span></a>')
-    # Waves and Pull requests are lenses across the statuses, not statuses — set them
-    # apart with a single divider below the status list, and each exists only once its
-    # field appears on some issue (Waves counts distinct waves; Pull requests counts
-    # open PRs). One divider serves both, present when either view is. The divider
-    # carries its style inline so the shared CSS (and no-lens builds) stays byte-identical.
+    # The lenses — views across the statuses, not statuses — sit apart below a single
+    # divider. The Board always exists (every tracker has statuses; its badge counts
+    # every issue). Today, Waves and Pull requests each exist only once their source
+    # appears (Waves counts distinct waves; Pull requests counts open PRs).
     waves = {str(it["wave"]) for it in issues if it.get("wave")}
     pr_issues = [it for it in issues if _pr_refs(it)]
     # The Today view exists once a todos file does — or once today has a day file,
     # even with no todos yet (the day's spine is worth showing on its own).
     todo_files = list_todo_files()
     day_today = read_day(time.strftime("%Y-%m-%d")) is not None
-    if waves or pr_issues or todo_files or day_today:
-        parts.append('<div style="height:1px;background:var(--line);margin:9px 8px 8px">'
-                     '</div>')
+    parts.append('<div style="height:1px;background:var(--line);margin:9px 8px 8px">'
+                 '</div>')
+    cls = "nav-row active" if active_status == "Board" else "nav-row"
+    parts.append(
+        f'<a class="{cls}" href="{url_for("board")}">{board_icon()}'
+        f'Board<span class="n">{len(issues)}</span></a>')
     if todo_files or day_today:
         todos = [parse_todo(p) for p in todo_files]
         cls = "nav-row active" if active_status == "Today" else "nav-row"
@@ -1071,6 +1145,84 @@ def render_status_page(status, live=True):
     else:
         body = f'<section class="list"{data}>{rows(issues)}</section>'
     return page(f"{status} · {project_title()}", sidebar_html(status), head + body, live=live)
+
+
+def board_columns(issues):
+    """Group issues into the Board's columns: [(status, [issue, ...]), ...] left to
+    right. BOARD_COLUMNS always appear, even empty, in workflow order. A status the
+    lifecycle doesn't know (a typo, or a project's own state) gets a column between
+    In Review and Done — unfinished work stays left of finished — alphabetical when
+    there are several. Canceled closes the board, only when something is canceled.
+    Each column's issues are in _sort_key order: explicit `order` ascending, then
+    the unordered ones by id."""
+    by_status = {}
+    for it in issues:
+        by_status.setdefault(it["status"], []).append(it)
+    other = sorted(s for s in by_status if s not in LIFECYCLE)
+    statuses = BOARD_COLUMNS[:-1] + other + BOARD_COLUMNS[-1:]
+    if "Canceled" in by_status:
+        statuses.append("Canceled")
+    return [(s, sorted(by_status.get(s, []), key=_sort_key)) for s in statuses]
+
+
+def board_card(it):
+    """One issue as a card: priority, id and the live right-hand cluster (agent
+    pulse, PR state, assignee) on the top line; the title beneath, wrapping; then
+    the same small chips a list row wears — wave, and the doctor's verdict."""
+    hit = agent_presence()["issues"].get(it["id"])
+    dot = (f'<span class="pulse" title="agent active · {_age_label(hit["age"])}"></span>'
+           if hit else "")
+    right = dot + review_row_glyph(_pr_refs(it)) + assignee_icon(it.get("assignee", ""))
+    if right:
+        right = f'<span class="right">{right}</span>'
+    chips = ""
+    if it.get("wave"):
+        wave = html.escape(str(it["wave"]), quote=True)
+        chips += f'<span class="mini" title="wave {wave}">wave {wave}</span>'
+    verdict = review_verdict(it)
+    if verdict and verdict[0] == "stale":
+        chips += ('<span class="stale" title="every linked PR has merged — '
+                  'the status may need a flip">all PRs merged</span>')
+    elif verdict and verdict[0] == "held":
+        chips += (f'<span class="hold" title="review hold: '
+                  f'{html.escape(verdict[2], quote=True)}">held</span>')
+    if chips:
+        chips = f'<span class="kchips">{chips}</span>'
+    pri = html.escape(str(it["priority"]), quote=True)
+    return (
+        f'<a class="kcard" href="{url_for("issue", it["id"])}">'
+        f'<span class="kcard-top"><span class="kpri" title="{pri}">'
+        f'{priority_icon(it["priority"])}</span>'
+        f'<span class="iid">{html.escape(it["id"])}</span>'
+        f'{right}</span>'
+        f'<span class="ktitle">{html.escape(it["title"])}</span>{chips}</a>'
+    )
+
+
+def render_board_page(live=True):
+    """The whole tracker in one view: a column per status in workflow order, each
+    header carrying its count, each issue a card linking to its page. Display-only —
+    no drag here (reorder and restatus keep their own write paths) — and live like
+    every other view: a status flipped on disk moves the card on the next repaint."""
+    issues = list_issues()
+    head = (f'<div class="view-head"><h1>{board_icon()}Board'
+            f'<span class="vcount">{len(issues)}</span></h1></div>')
+    cols = []
+    for status, items in board_columns(issues):
+        label = f'{status_icon(status)}{html.escape(status)}<span class="n">{len(items)}</span>'
+        if status in STATUS_ORDER:           # a known status has its own list view
+            header = f'<a class="kcol-h" href="{url_for("status", status)}">{label}</a>'
+        else:
+            header = f'<div class="kcol-h">{label}</div>'
+        cards = ("".join(board_card(it) for it in items)
+                 or '<p class="empty">No issues.</p>')
+        key = html.escape(slug(status), quote=True)
+        cols.append(f'<section class="kcol" data-status="{html.escape(status, quote=True)}">'
+                    f'{header}<div class="kcol-b" data-scroll="col-{key}">{cards}</div>'
+                    f'</section>')
+    body = f'<div class="kanban" data-scroll="board">{"".join(cols)}</div>'
+    return page(f"Board · {project_title()}", sidebar_html("Board"), head + body,
+                live=live, wide=True)
 
 
 def _group_section(label, rows_html, data=""):
@@ -2456,6 +2608,8 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/":
             return self._html(render_project_page())
+        if path == "/board":
+            return self._html(render_board_page())
         if path == "/waves":
             if any(it.get("wave") for it in list_issues()):
                 return self._html(render_waves_page())
@@ -2573,6 +2727,8 @@ def build(outdir):
             (out / f"status-{slug(status)}.html").write_text(
                 render_status_page(status, live=False), encoding="utf-8")
             views += 1
+    (out / "board.html").write_text(render_board_page(live=False), encoding="utf-8")
+    views += 1
     if any(it.get("wave") for it in issues):
         (out / "waves.html").write_text(render_waves_page(live=False), encoding="utf-8")
         views += 1
